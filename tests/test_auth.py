@@ -313,3 +313,166 @@ def test_user_persists_correctly(auth_db) -> None:
     assert str(user.id) == response.json()["id"]
     assert user.email == email
     assert user.is_active is True
+
+def test_forgot_password_known_email_returns_generic_success(auth_db, monkeypatch) -> None:
+    _, track = auth_db
+    email = track(unique_email("forgot"))
+    register_user(email)
+
+    sent: dict[str, str] = {}
+
+    def fake_send_password_reset_email(email: str, reset_token: str) -> None:
+        sent["email"] = email
+        sent["token"] = reset_token
+
+    monkeypatch.setattr(
+        "app.services.auth_service.send_password_reset_email",
+        fake_send_password_reset_email,
+    )
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/forgot-password",
+            json={"email": email},
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "If an account exists for this email, a password reset link has been sent."
+    )
+    assert sent["email"] == email
+    assert sent["token"]
+
+
+def test_forgot_password_unknown_email_returns_same_generic_success(auth_db, monkeypatch) -> None:
+    _, track = auth_db
+    email = track(unique_email("missing"))
+
+    called = False
+
+    def fake_send_password_reset_email(email: str, reset_token: str) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(
+        "app.services.auth_service.send_password_reset_email",
+        fake_send_password_reset_email,
+    )
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/forgot-password",
+            json={"email": email},
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "If an account exists for this email, a password reset link has been sent."
+    )
+    assert called is False
+
+
+def test_reset_password_succeeds_and_invalidates_old_password(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("reset"))
+    old_password = "StrongPassword123"
+    new_password = "NewStrongPassword456"
+
+    register_user(email, password=old_password)
+
+    user = db.query(User).filter(User.email == email).one()
+
+    from app.core.security import create_password_reset_token
+
+    token = create_password_reset_token(
+        subject=user.id,
+        password_hash=user.password_hash,
+    )
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/reset-password",
+            json={
+                "token": token,
+                "new_password": new_password,
+            },
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Password has been reset successfully."
+
+    old_login = login_user(email, password=old_password)
+    new_login = login_user(email, password=new_password)
+
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200
+
+
+def test_reset_password_token_cannot_be_reused(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("reuse"))
+    register_user(email)
+
+    user = db.query(User).filter(User.email == email).one()
+
+    from app.core.security import create_password_reset_token
+
+    token = create_password_reset_token(
+        subject=user.id,
+        password_hash=user.password_hash,
+    )
+
+    first = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/reset-password",
+            json={
+                "token": token,
+                "new_password": "FirstNewPassword123",
+            },
+        )
+    )
+
+    second = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/reset-password",
+            json={
+                "token": token,
+                "new_password": "SecondNewPassword123",
+            },
+        )
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 400
+    assert second.json()["error"]["code"] == "INVALID_PASSWORD_RESET_TOKEN"
+
+
+def test_reset_password_rejects_access_token(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("wrong-token-type"))
+    register_user(email)
+
+    user = db.query(User).filter(User.email == email).one()
+    access_token = create_access_token(user.id)
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/reset-password",
+            json={
+                "token": access_token,
+                "new_password": "AnotherStrongPassword123",
+            },
+        )
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_PASSWORD_RESET_TOKEN"

@@ -2,7 +2,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import APIErrorException
-from app.core.security import hash_password, verify_password
+from uuid import UUID
+
+from app.core.security import (
+    InvalidTokenError,
+    TokenExpiredError,
+    create_password_reset_token,
+    decode_password_reset_token,
+    hash_password,
+    password_reset_fingerprint,
+    verify_password,
+)
+from app.services.email_service import send_password_reset_email
 from app.models.user import User
 
 
@@ -62,3 +73,62 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
         )
 
     return user
+
+def request_password_reset(db: Session, email: str) -> None:
+    user = get_user_by_email(db, email)
+
+    # Always return success-style behavior so attackers cannot
+    # discover which emails are registered.
+    if user is None or not user.is_active:
+        return
+
+    token = create_password_reset_token(
+        subject=user.id,
+        password_hash=user.password_hash,
+    )
+
+    send_password_reset_email(
+        email=user.email,
+        reset_token=token,
+    )
+
+
+def reset_password(db: Session, token: str, new_password: str) -> None:
+    try:
+        payload = decode_password_reset_token(token)
+        user_id = UUID(str(payload.get("sub")))
+        token_fingerprint = str(payload.get("pwd"))
+    except TokenExpiredError as exc:
+        raise APIErrorException(
+            status_code=400,
+            code="PASSWORD_RESET_TOKEN_EXPIRED",
+            message="Password reset token has expired.",
+        ) from exc
+    except (InvalidTokenError, TypeError, ValueError) as exc:
+        raise APIErrorException(
+            status_code=400,
+            code="INVALID_PASSWORD_RESET_TOKEN",
+            message="Password reset token is invalid.",
+        ) from exc
+
+    user = db.get(User, user_id)
+
+    if user is None or not user.is_active:
+        raise APIErrorException(
+            status_code=400,
+            code="INVALID_PASSWORD_RESET_TOKEN",
+            message="Password reset token is invalid.",
+        )
+
+    current_fingerprint = password_reset_fingerprint(user.password_hash)
+
+    if token_fingerprint != current_fingerprint:
+        raise APIErrorException(
+            status_code=400,
+            code="INVALID_PASSWORD_RESET_TOKEN",
+            message="Password reset token is invalid or has already been used.",
+        )
+
+    user.password_hash = hash_password(new_password)
+    db.add(user)
+    db.commit()

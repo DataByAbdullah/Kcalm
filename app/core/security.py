@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -47,6 +48,52 @@ def create_access_token(subject: str | UUID) -> str:
         "exp": expires_at,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+def password_reset_fingerprint(password_hash: str) -> str:
+    return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()
+
+
+def create_password_reset_token(
+    subject: str | UUID,
+    password_hash: str,
+) -> str:
+    settings = get_settings()
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(
+        minutes=settings.password_reset_token_expire_minutes
+    )
+
+    payload = {
+        "sub": str(subject),
+        "type": "password_reset",
+        "pwd": password_reset_fingerprint(password_hash),
+        "iat": now,
+        "exp": expires_at,
+    }
+
+    return jwt.encode(
+        payload,
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+def decode_password_reset_token(token: str) -> dict:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except jwt.ExpiredSignatureError as exc:
+        raise TokenExpiredError from exc
+    except jwt.PyJWTError as exc:
+        raise InvalidTokenError from exc
+
+    if payload.get("type") != "password_reset":
+        raise InvalidTokenError
+
+    return payload
 
 
 def decode_access_token(token: str) -> dict:

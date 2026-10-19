@@ -11,6 +11,16 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-this-development-secret-at-least-32-bytes"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    password_reset_token_expire_minutes: int = 30
+    frontend_password_reset_url: str = "http://localhost:3000/reset-password"
+
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+    
     usda_api_key: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
