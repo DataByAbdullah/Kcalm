@@ -1,0 +1,33 @@
+from app.core.enums import Goal
+
+
+PROTEIN_KCAL_PER_G = 4
+CARBS_KCAL_PER_G = 4
+FAT_KCAL_PER_G = 9
+
+MAX_TARGET_RATE = 2.5
+CALORIE_ADJUSTMENT_KCAL_PER_TARGET_RATE = 1000.0
+
+DEFAULT_TARGET_RATE_BY_GOAL: dict[Goal, float] = {
+    Goal.MAINTENANCE: 0.0,
+    Goal.FAT_LOSS: 0.5,
+    Goal.MUSCLE_GAIN: 0.25,
+    Goal.RECOMPOSITION: 0.0,
+}
+
+MAX_DAILY_CALORIE_ADJUSTMENT_BY_GOAL: dict[Goal, float] = {
+    Goal.MAINTENANCE: 0.0,
+    Goal.FAT_LOSS: 500.0,
+    Goal.MUSCLE_GAIN: 300.0,
+    Goal.RECOMPOSITION: 0.0,
+}
+
+PROTEIN_G_PER_KG_BY_GOAL: dict[Goal, float] = {
+    Goal.MAINTENANCE: 1.6,
+    Goal.FAT_LOSS: 2.0,
+    Goal.MUSCLE_GAIN: 1.8,
+    Goal.RECOMPOSITION: 2.0,
+}
+
+FAT_G_PER_KG = 0.8
+

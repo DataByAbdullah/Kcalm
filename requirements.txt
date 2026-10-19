@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+sqlalchemy
+psycopg
+alembic
+argon2-cffi
+email-validator
+PyJWT
+pytest
+httpx
+ortools==9.15.6755
+openai==3.29.0

@@ -1,0 +1,2 @@
+"""Kcalm backend application package."""
+
