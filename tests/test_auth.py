@@ -553,3 +553,108 @@ def test_current_user_can_update_full_name(auth_db) -> None:
     db.expire_all()
     user = db.query(User).filter(User.email == email).one()
     assert user.full_name == "Muhammad Hamdoon"
+
+def test_login_returns_refresh_token(auth_db) -> None:
+    _, track = auth_db
+    email = track(unique_email("refresh-login"))
+    register_user(email)
+
+    response = login_user(email)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["refresh_token"]
+    assert body["refresh_expires_in"] == get_settings().refresh_token_expire_days * 24 * 60 * 60
+
+
+def test_refresh_token_returns_new_tokens(auth_db) -> None:
+    _, track = auth_db
+    email = track(unique_email("refresh"))
+    register_user(email)
+
+    login_response = login_user(email)
+    refresh_token = login_response.json()["refresh_token"]
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token},
+        )
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["refresh_token"]
+    assert body["token_type"] == "bearer"
+
+
+def test_access_token_cannot_be_used_as_refresh_token(auth_db) -> None:
+    _, track = auth_db
+    email = track(unique_email("access-as-refresh"))
+    register_user(email)
+
+    access_token = login_user(email).json()["access_token"]
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/refresh",
+            json={"refresh_token": access_token},
+        )
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INVALID_REFRESH_TOKEN"
+
+
+def test_refresh_token_cannot_access_protected_endpoint(auth_db) -> None:
+    _, track = auth_db
+    email = track(unique_email("refresh-as-access"))
+    register_user(email)
+
+    refresh_token = login_user(email).json()["refresh_token"]
+
+    response = run_async(
+        api_request(
+            "GET",
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {refresh_token}"},
+        )
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INVALID_TOKEN"
+
+
+def test_expired_refresh_token_fails(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("expired-refresh"))
+    register_user(email)
+
+    user = db.query(User).filter(User.email == email).one()
+    settings = get_settings()
+
+    expired_refresh_token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "refresh",
+            "iat": datetime.now(UTC) - timedelta(days=8),
+            "exp": datetime.now(UTC) - timedelta(days=1),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/refresh",
+            json={"refresh_token": expired_refresh_token},
+        )
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "REFRESH_TOKEN_EXPIRED"

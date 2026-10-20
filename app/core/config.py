@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-this-development-secret-at-least-32-bytes"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 7
     password_reset_token_expire_minutes: int = 30
     frontend_password_reset_url: str = "http://localhost:3000/reset-password"
 

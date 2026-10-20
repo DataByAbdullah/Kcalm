@@ -1,11 +1,20 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
-
+from uuid import UUID
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import create_access_token, get_current_user
+from app.core.security import (
+    InvalidTokenError,
+    TokenExpiredError,
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    get_current_user,
+)
+from app.core.exceptions import APIErrorException, unauthorized_error
 from app.models.user import User
 from app.schemas.auth import (
+    RefreshTokenRequest,
     ForgotPasswordRequest,
     MessageResponse,
     ResetPasswordRequest,
@@ -43,11 +52,61 @@ def login(
     payload: UserLoginRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
-    user = authenticate_user(db=db, email=str(payload.email), password=payload.password)
+    user = authenticate_user(
+        db=db,
+        email=str(payload.email),
+        password=payload.password,
+        )
     settings = get_settings()
     return TokenResponse(
         access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
         expires_in=settings.access_token_expire_minutes * 60,
+        refresh_expires_in=settings.refresh_token_expire_days * 24 * 60 * 60,
+)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_access_token(
+    payload: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    try:
+        token_payload = decode_refresh_token(payload.refresh_token)
+        user_id = UUID(str(token_payload.get("sub")))
+    except TokenExpiredError as exc:
+        raise unauthorized_error(
+            code="REFRESH_TOKEN_EXPIRED",
+            message="Refresh token has expired.",
+        ) from exc
+    except (InvalidTokenError, TypeError, ValueError) as exc:
+        raise unauthorized_error(
+            code="INVALID_REFRESH_TOKEN",
+            message="Refresh token is invalid.",
+        ) from exc
+
+    user = db.get(User, user_id)
+
+    if user is None:
+        raise unauthorized_error(
+            code="INVALID_REFRESH_TOKEN",
+            message="Refresh token is invalid.",
+        )
+
+    if not user.is_active:
+        raise APIErrorException(
+            status_code=403,
+            code="USER_INACTIVE",
+            message="This account is inactive.",
+        )
+
+    settings = get_settings()
+
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+        expires_in=settings.access_token_expire_minutes * 60,
+        refresh_expires_in=settings.refresh_token_expire_days * 24 * 60 * 60,
     )
 
 
