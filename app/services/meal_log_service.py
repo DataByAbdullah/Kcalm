@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import date, timedelta
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
-
+from app.models.extra_food_log import ExtraFoodLog
 from app.core.enums import MealLogSourceType, MealLogStatus, MealLogType, MealPlanStatus
 from app.core.exceptions import APIErrorException
 from app.meal_planning.scaling import scale_amount, unscale_amount
@@ -416,6 +416,20 @@ def get_daily_intake_history(
         .order_by(MealLog.log_date.asc(), MealLog.created_at.asc())
         .all()
     )
+    extra_logs = (
+    db.query(ExtraFoodLog)
+    .filter(
+        ExtraFoodLog.user_id == user.id,
+        ExtraFoodLog.log_date >= start_date,
+        ExtraFoodLog.log_date <= end_date,
+    )
+    .order_by(
+        ExtraFoodLog.log_date.asc(),
+        ExtraFoodLog.created_at.asc(),
+    )
+    .all()
+)
+    
 
     totals_by_date: dict[date, dict[str, float]] = {}
 
@@ -445,6 +459,13 @@ def get_daily_intake_history(
             if field_name is not None:
                 day_totals[field_name] += nutrient.amount
 
+    for extra_log in extra_logs:
+        day_totals = totals_by_date[extra_log.log_date]
+
+        day_totals["calories"] += extra_log.calories
+        day_totals["protein_g"] += extra_log.protein_g
+        day_totals["carbs_g"] += extra_log.carbs_g
+        day_totals["fat_g"] += extra_log.fat_g
     return [
         {
             "date": log_date,

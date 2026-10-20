@@ -1,5 +1,5 @@
 """SQLAlchemy models and reusable model utilities."""
-
+from app.models.extra_food_log import ExtraFoodLog
 from app.models.base import TimestampMixin, TimestampedUUIDBase, UUIDPrimaryKeyMixin
 from app.models.adaptation import MealPlanAdaptationSnapshot
 from app.models.food import Food, FoodNutrient, FoodServing
@@ -37,6 +37,7 @@ from app.models.user_profile import (
 )
 
 __all__ = [
+    "ExtraFoodLog",
     "TimestampMixin",
     "TimestampedUUIDBase",
     "UUIDPrimaryKeyMixin",

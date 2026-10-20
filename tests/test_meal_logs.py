@@ -560,3 +560,115 @@ def test_daily_intake_history_requires_authentication() -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "INVALID_TOKEN"
+
+def test_custom_standalone_snack_is_added_to_daily_intake(meal_log_db) -> None:
+    db, track_email, _, _ = meal_log_db
+    token, _ = create_user_plan(
+        db,
+        track_email,
+        plan_date="2027-03-20",
+    )
+
+    create_response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/nutrition/snacks",
+            headers=auth_headers(token),
+            json={
+                "log_date": "2027-03-20",
+                "name": "Protein Snack",
+                "calories": 250,
+                "protein_g": 20,
+                "carbs_g": 30,
+                "fat_g": 6,
+            },
+        )
+    )
+
+    assert create_response.status_code == 201
+
+    snack = create_response.json()
+    assert snack["name"] == "Protein Snack"
+    assert snack["calories"] == 250
+    assert snack["protein_g"] == 20
+    assert snack["carbs_g"] == 30
+    assert snack["fat_g"] == 6
+
+    intake_response = intake_history(
+        token,
+        "2027-03-20",
+        "2027-03-20",
+    )
+
+    assert intake_response.status_code == 200
+
+    day = intake_response.json()[0]
+    assert day["calories"] == pytest.approx(250)
+    assert day["protein_g"] == pytest.approx(20)
+    assert day["carbs_g"] == pytest.approx(30)
+    assert day["fat_g"] == pytest.approx(6)
+
+    delete_response = run_async(
+        api_request(
+            "DELETE",
+            f"/api/v1/nutrition/snacks/{snack['id']}",
+            headers=auth_headers(token),
+        )
+    )
+
+    assert delete_response.status_code == 204
+
+    intake_after_delete = intake_history(
+        token,
+        "2027-03-20",
+        "2027-03-20",
+    )
+
+    assert intake_after_delete.status_code == 200
+    assert intake_after_delete.json()[0] == {
+        "date": "2027-03-20",
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+    }
+
+def test_food_based_standalone_snack_calculates_macros(meal_log_db) -> None:
+    db, track_email, _, track_food = meal_log_db
+
+    token, _ = create_user_plan(
+        db,
+        track_email,
+        plan_date="2027-03-21",
+    )
+
+    food = create_test_food(
+        db,
+        track_food,
+        calories=120,
+        protein=20,
+    )
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/nutrition/snacks",
+            headers=auth_headers(token),
+            json={
+                "log_date": "2027-03-21",
+                "food_id": str(food.id),
+                "quantity_grams": 200,
+            },
+        )
+    )
+
+    assert response.status_code == 201, response.text
+
+    snack = response.json()
+
+    assert snack["food_id"] == str(food.id)
+    assert snack["quantity_grams"] == 200
+    assert snack["calories"] == pytest.approx(240)
+    assert snack["protein_g"] == pytest.approx(40)
+    assert snack["carbs_g"] == pytest.approx(20)
+    assert snack["fat_g"] == pytest.approx(8)

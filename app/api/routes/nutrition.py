@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
+from uuid import UUID
 from app.services.meal_log_service import get_daily_intake_history
 from sqlalchemy.orm import Session
 from datetime import date
@@ -15,6 +16,10 @@ from app.nutrition.micronutrients import (
     get_micronutrient_targets,
 )
 from app.nutrition.targets import calculate_nutrition_targets
+from app.schemas.extra_food_log import (
+    ExtraFoodLogCreateRequest,
+    ExtraFoodLogResponse,
+)
 from app.schemas.nutrition import (
     DailyIntakeResponse,
     MacroTargetsResponse,
@@ -22,6 +27,11 @@ from app.schemas.nutrition import (
     MicronutrientTargetsResponse,
     NutritionCalculationRequest,
     NutritionCalculationResponse,
+)
+
+from app.services.extra_food_log_service import (
+    create_extra_food_log,
+    delete_extra_food_log,
 )
 from app.services.user_profile_service import get_profile
 
@@ -133,3 +143,51 @@ def read_daily_intake(
     )
 
     return [DailyIntakeResponse(**item) for item in history]
+
+@router.post(
+    "/snacks",
+    response_model=ExtraFoodLogResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_snack(
+    payload: ExtraFoodLogCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ExtraFoodLogResponse:
+    extra_log = create_extra_food_log(
+        db=db,
+        user=current_user,
+        payload=payload,
+    )
+
+    return ExtraFoodLogResponse(
+        id=extra_log.id,
+        log_date=extra_log.log_date,
+        name=extra_log.name,
+        food_id=extra_log.food_id,
+        quantity_grams=extra_log.quantity_grams,
+        calories=extra_log.calories,
+        protein_g=extra_log.protein_g,
+        carbs_g=extra_log.carbs_g,
+        fat_g=extra_log.fat_g,
+        created_at=extra_log.created_at,
+        updated_at=extra_log.updated_at,
+    )
+
+
+@router.delete(
+    "/snacks/{snack_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_snack(
+    snack_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    delete_extra_food_log(
+        db=db,
+        user=current_user,
+        extra_food_log_id=snack_id,
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
