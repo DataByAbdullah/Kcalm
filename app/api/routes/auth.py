@@ -30,7 +30,12 @@ def register(
     payload: UserRegisterRequest,
     db: Session = Depends(get_db),
 ) -> User:
-    return register_user(db=db, email=str(payload.email), password=payload.password)
+    return register_user(
+        db=db,
+        email=str(payload.email),
+        password=payload.password,
+        full_name=payload.full_name,
+)
 
 
 @router.post("/login", response_model=TokenResponse)

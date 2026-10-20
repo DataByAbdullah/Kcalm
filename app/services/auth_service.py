@@ -26,8 +26,14 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == normalized_email).one_or_none()
 
 
-def register_user(db: Session, email: str, password: str) -> User:
+def register_user(
+    db: Session,
+    email: str,
+    password: str,
+    full_name: str | None = None,
+) -> User:
     normalized_email = normalize_email(email)
+
     existing_user = get_user_by_email(db, normalized_email)
     if existing_user is not None:
         raise APIErrorException(
@@ -38,10 +44,13 @@ def register_user(db: Session, email: str, password: str) -> User:
 
     user = User(
         email=normalized_email,
+        full_name=full_name,
         password_hash=hash_password(password),
         is_active=True,
     )
+
     db.add(user)
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -54,7 +63,6 @@ def register_user(db: Session, email: str, password: str) -> User:
 
     db.refresh(user)
     return user
-
 
 def authenticate_user(db: Session, email: str, password: str) -> User:
     user = get_user_by_email(db, email)

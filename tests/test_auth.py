@@ -476,3 +476,80 @@ def test_reset_password_rejects_access_token(auth_db) -> None:
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INVALID_PASSWORD_RESET_TOKEN"
+
+def test_registration_accepts_full_name(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("full-name"))
+
+    response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/register",
+            json={
+                "email": email,
+                "password": "StrongPassword123",
+                "full_name": "Muhammad Hamdoon",
+            },
+        )
+    )
+
+    assert response.status_code == 201
+    assert response.json()["full_name"] == "Muhammad Hamdoon"
+
+    user = db.query(User).filter(User.email == email).one()
+    assert user.full_name == "Muhammad Hamdoon"
+
+
+def test_current_user_returns_full_name(auth_db) -> None:
+    _, track = auth_db
+    email = track(unique_email("me-name"))
+
+    register_response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/auth/register",
+            json={
+                "email": email,
+                "password": "StrongPassword123",
+                "full_name": "Muhammad Hamdoon",
+            },
+        )
+    )
+    assert register_response.status_code == 201
+
+    token = login_user(email).json()["access_token"]
+
+    response = run_async(
+        api_request(
+            "GET",
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "Muhammad Hamdoon"
+
+
+def test_current_user_can_update_full_name(auth_db) -> None:
+    db, track = auth_db
+    email = track(unique_email("update-name"))
+    register_user(email)
+
+    token = login_user(email).json()["access_token"]
+
+    response = run_async(
+        api_request(
+            "PATCH",
+            "/api/v1/users/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"full_name": "Muhammad Hamdoon"},
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "Muhammad Hamdoon"
+
+    db.expire_all()
+    user = db.query(User).filter(User.email == email).one()
+    assert user.full_name == "Muhammad Hamdoon"
