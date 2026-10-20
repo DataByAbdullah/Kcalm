@@ -672,3 +672,60 @@ def test_food_based_standalone_snack_calculates_macros(meal_log_db) -> None:
     assert snack["protein_g"] == pytest.approx(40)
     assert snack["carbs_g"] == pytest.approx(20)
     assert snack["fat_g"] == pytest.approx(8)
+
+def test_actual_micronutrients_include_logged_snack_only(meal_log_db) -> None:
+    db, track_email, _, track_food = meal_log_db
+
+    token, _ = create_user_plan(
+        db,
+        track_email,
+        plan_date="2027-03-22",
+    )
+
+    food = create_test_food(
+        db,
+        track_food,
+        calories=120,
+        protein=20,
+    )
+
+    snack_response = run_async(
+        api_request(
+            "POST",
+            "/api/v1/nutrition/snacks",
+            headers=auth_headers(token),
+            json={
+                "log_date": "2027-03-22",
+                "food_id": str(food.id),
+                "quantity_grams": 200,
+            },
+        )
+    )
+
+    assert snack_response.status_code == 201, snack_response.text
+
+    response = run_async(
+        api_request(
+            "GET",
+            "/api/v1/nutrition/micronutrients/actual?date=2027-03-22",
+            headers=auth_headers(token),
+        )
+    )
+
+    assert response.status_code == 200, response.text
+
+    body = response.json()
+    assert body["date"] == "2027-03-22"
+
+    calcium = next(
+        item
+        for item in body["micronutrients"]
+        if item["code"] == "calcium"
+    )
+
+    assert calcium["actual"] == pytest.approx(100)
+    assert calcium["target"] > 0
+    assert calcium["unit"] == "mg"
+    assert calcium["percentage"] == pytest.approx(
+        (calcium["actual"] / calcium["target"]) * 100
+    )

@@ -13,6 +13,7 @@ from app.models.meal_plan import MealPlan, MealPlanItem
 from app.models.recipe import Recipe
 from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
+from app.nutrition.micronutrients import SUPPORTED_NUTRIENT_CODES
 from app.schemas.meal_log import MealLogRequest
 from app.services.food_service import food_not_found_error
 from app.services.meal_plan_service import (
@@ -476,3 +477,55 @@ def get_daily_intake_history(
         }
         for log_date, values in sorted(totals_by_date.items())
     ]
+
+def get_daily_micronutrient_actuals(
+    db: Session,
+    user: User,
+    log_date: date,
+) -> dict[str, float]:
+    logs = (
+        db.query(MealLog)
+        .options(selectinload(MealLog.nutrients))
+        .filter(
+            MealLog.user_id == user.id,
+            MealLog.status == MealLogStatus.ACTIVE.value,
+            MealLog.log_date == log_date,
+        )
+        .all()
+    )
+
+    extra_logs = (
+        db.query(ExtraFoodLog)
+        .options(selectinload(ExtraFoodLog.nutrients))
+        .filter(
+            ExtraFoodLog.user_id == user.id,
+            ExtraFoodLog.log_date == log_date,
+        )
+        .all()
+    )
+
+    supported_codes = set(SUPPORTED_NUTRIENT_CODES)
+
+    totals_scaled = {
+        code: 0
+        for code in SUPPORTED_NUTRIENT_CODES
+    }
+
+    for log in logs:
+        for nutrient in log.nutrients:
+            if nutrient.nutrient_code in supported_codes:
+                totals_scaled[nutrient.nutrient_code] += scale_amount(
+                    nutrient.amount
+                )
+
+    for extra_log in extra_logs:
+        for nutrient in extra_log.nutrients:
+            if nutrient.nutrient_code in supported_codes:
+                totals_scaled[nutrient.nutrient_code] += scale_amount(
+                    nutrient.amount
+                )
+
+    return {
+        code: unscale_amount(totals_scaled[code])
+        for code in SUPPORTED_NUTRIENT_CODES
+    }

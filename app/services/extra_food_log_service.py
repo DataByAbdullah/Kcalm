@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import APIErrorException
 from app.meal_planning.scaling import scale_amount, unscale_amount
-from app.models.extra_food_log import ExtraFoodLog
+from app.models.extra_food_log import (
+    ExtraFoodLog,
+    ExtraFoodLogNutrientSnapshot,
+)
 from app.models.user import User
 from app.schemas.extra_food_log import ExtraFoodLogCreateRequest
 from app.services.food_service import get_food_detail
@@ -48,6 +51,8 @@ def create_extra_food_log(
     user: User,
     payload: ExtraFoodLogCreateRequest,
 ) -> ExtraFoodLog:
+    nutrient_snapshots: list[tuple[str, str, float, str]] = []
+
     if payload.food_id is not None:
         food = get_food_detail(
             db=db,
@@ -66,12 +71,15 @@ def create_extra_food_log(
             raise food_macros_incomplete_error()
 
         quantity_grams = payload.quantity_grams
+
         if quantity_grams is None:
             raise extra_food_log_save_failed_error()
 
         def amount_for(code: str) -> float:
             amount = nutrient_map[code] * quantity_grams / 100
-            return unscale_amount(scale_amount(amount))
+            return unscale_amount(
+                scale_amount(amount)
+            )
 
         extra_log = ExtraFoodLog(
             user_id=user.id,
@@ -85,6 +93,22 @@ def create_extra_food_log(
             fat_g=amount_for("fat"),
         )
 
+        nutrient_snapshots = [
+            (
+                nutrient.nutrient_code,
+                nutrient.nutrient_name,
+                unscale_amount(
+                    scale_amount(
+                        nutrient.amount
+                        * quantity_grams
+                        / 100
+                    )
+                ),
+                nutrient.unit,
+            )
+            for nutrient in food.nutrients
+        ]
+
     else:
         extra_log = ExtraFoodLog(
             user_id=user.id,
@@ -92,16 +116,73 @@ def create_extra_food_log(
             name=payload.name.strip() if payload.name else "",
             food_id=None,
             quantity_grams=None,
-            calories=payload.calories if payload.calories is not None else 0.0,
-            protein_g=payload.protein_g if payload.protein_g is not None else 0.0,
-            carbs_g=payload.carbs_g if payload.carbs_g is not None else 0.0,
-            fat_g=payload.fat_g if payload.fat_g is not None else 0.0,
+            calories=(
+                payload.calories
+                if payload.calories is not None
+                else 0.0
+            ),
+            protein_g=(
+                payload.protein_g
+                if payload.protein_g is not None
+                else 0.0
+            ),
+            carbs_g=(
+                payload.carbs_g
+                if payload.carbs_g is not None
+                else 0.0
+            ),
+            fat_g=(
+                payload.fat_g
+                if payload.fat_g is not None
+                else 0.0
+            ),
         )
+
+        nutrient_snapshots = [
+            (
+                "calories",
+                "Calories",
+                extra_log.calories,
+                "kcal",
+            ),
+            (
+                "protein",
+                "Protein",
+                extra_log.protein_g,
+                "g",
+            ),
+            (
+                "carbohydrates",
+                "Carbohydrates",
+                extra_log.carbs_g,
+                "g",
+            ),
+            (
+                "fat",
+                "Fat",
+                extra_log.fat_g,
+                "g",
+            ),
+        ]
 
     try:
         db.add(extra_log)
+        db.flush()
+
+        for code, name, amount, unit in nutrient_snapshots:
+            db.add(
+                ExtraFoodLogNutrientSnapshot(
+                    extra_food_log_id=extra_log.id,
+                    nutrient_code=code,
+                    nutrient_name=name,
+                    amount=amount,
+                    unit=unit,
+                )
+            )
+
         db.commit()
         db.refresh(extra_log)
+
     except SQLAlchemyError as exc:
         db.rollback()
         raise extra_food_log_save_failed_error() from exc
@@ -129,6 +210,7 @@ def delete_extra_food_log(
     try:
         db.delete(extra_log)
         db.commit()
+
     except SQLAlchemyError as exc:
         db.rollback()
         raise extra_food_log_save_failed_error() from exc

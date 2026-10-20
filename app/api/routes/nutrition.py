@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, Query, Response, status
 from uuid import UUID
-from app.services.meal_log_service import get_daily_intake_history
+from app.services.meal_log_service import (
+    get_daily_intake_history,
+    get_daily_micronutrient_actuals,
+)
 from sqlalchemy.orm import Session
 from datetime import date
 from app.core.database import get_db
@@ -21,6 +24,8 @@ from app.schemas.extra_food_log import (
     ExtraFoodLogResponse,
 )
 from app.schemas.nutrition import (
+    DailyMicronutrientIntakeResponse,
+    MicronutrientActualResponse,
     DailyIntakeResponse,
     MacroTargetsResponse,
     MicronutrientTargetResponse,
@@ -191,3 +196,72 @@ def delete_snack(
     )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.get(
+    "/micronutrients/actual",
+    response_model=DailyMicronutrientIntakeResponse,
+)
+def read_actual_micronutrient_intake(
+    log_date: date = Query(alias="date"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DailyMicronutrientIntakeResponse:
+    profile = get_profile(
+        db=db,
+        user=current_user,
+    )
+
+    try:
+        targets = get_micronutrient_targets(
+            age=profile.age,
+            sex=profile.sex,
+        )
+    except MicronutrientTargetError as exc:
+        raise APIErrorException(
+            status_code=422,
+            code="MICRONUTRIENT_TARGETS_UNSUPPORTED",
+            message=str(exc),
+        ) from exc
+    except MicronutrientReferenceDataError as exc:
+        raise APIErrorException(
+            status_code=500,
+            code="MICRONUTRIENT_REFERENCE_DATA_MISSING",
+            message="Micronutrient reference data is incomplete.",
+            details={"reason": str(exc)},
+        ) from exc
+
+    actuals = get_daily_micronutrient_actuals(
+        db=db,
+        user=current_user,
+        log_date=log_date,
+    )
+
+    micronutrients = []
+
+    for target in targets:
+        actual = actuals.get(
+            target.nutrient_code,
+            0.0,
+        )
+
+        percentage = (
+            round((actual / target.amount) * 100, 6)
+            if target.amount > 0
+            else 0.0
+        )
+
+        micronutrients.append(
+            MicronutrientActualResponse(
+                code=target.nutrient_code,
+                name=target.nutrient_name,
+                actual=actual,
+                target=target.amount,
+                unit=target.unit,
+                percentage=percentage,
+            )
+        )
+
+    return DailyMicronutrientIntakeResponse(
+        date=log_date,
+        micronutrients=micronutrients,
+    )

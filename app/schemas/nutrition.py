@@ -56,3 +56,16 @@ class DailyIntakeResponse(BaseModel):
     protein_g: float
     carbs_g: float
     fat_g: float
+
+class MicronutrientActualResponse(BaseModel):
+    code: str
+    name: str
+    actual: float
+    target: float
+    unit: str
+    percentage: float
+
+
+class DailyMicronutrientIntakeResponse(BaseModel):
+    date: date
+    micronutrients: list[MicronutrientActualResponse]
