@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from app.services.meal_log_service import get_daily_intake_history
 from sqlalchemy.orm import Session
-
+from datetime import date
 from app.core.database import get_db
 from app.core.exceptions import APIErrorException
 from app.core.security import get_current_user
@@ -15,6 +16,7 @@ from app.nutrition.micronutrients import (
 )
 from app.nutrition.targets import calculate_nutrition_targets
 from app.schemas.nutrition import (
+    DailyIntakeResponse,
     MacroTargetsResponse,
     MicronutrientTargetResponse,
     MicronutrientTargetsResponse,
@@ -108,3 +110,26 @@ def read_micronutrient_targets(
     return MicronutrientTargetsResponse(
         micronutrients=[_micronutrient_to_response(target) for target in targets]
     )
+
+@router.get("/intake", response_model=list[DailyIntakeResponse])
+def read_daily_intake(
+    start_date: date = Query(alias="from"),
+    end_date: date = Query(alias="to"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DailyIntakeResponse]:
+    if start_date > end_date:
+        raise APIErrorException(
+            status_code=422,
+            code="INVALID_DATE_RANGE",
+            message="'from' date must be before or equal to 'to' date.",
+        )
+
+    history = get_daily_intake_history(
+        db=db,
+        user=current_user,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return [DailyIntakeResponse(**item) for item in history]

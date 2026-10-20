@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-
+from datetime import date
 from app.core.enums import ActivityLevel, Goal, Sex
 from app.nutrition.constants import MAX_TARGET_RATE
 
@@ -48,3 +48,11 @@ class MicronutrientTargetResponse(BaseModel):
 
 class MicronutrientTargetsResponse(BaseModel):
     micronutrients: list[MicronutrientTargetResponse]
+
+
+class DailyIntakeResponse(BaseModel):
+    date: date
+    calories: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float

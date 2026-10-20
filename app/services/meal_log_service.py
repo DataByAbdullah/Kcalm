@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from uuid import UUID
-
+from datetime import date, timedelta
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -397,3 +397,61 @@ def differences(actual: dict[str, float], baseline: dict[str, float]) -> dict[st
 def missing_nutrient_codes_for_log(meal_log: MealLog) -> list[str]:
     known_codes = {nutrient.nutrient_code for nutrient in meal_log.nutrients}
     return sorted(set(RECIPE_NUTRIENT_DEFINITION_BY_CODE) - known_codes)
+
+def get_daily_intake_history(
+    db: Session,
+    user: User,
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    logs = (
+        db.query(MealLog)
+        .options(selectinload(MealLog.nutrients))
+        .filter(
+            MealLog.user_id == user.id,
+            MealLog.status == MealLogStatus.ACTIVE.value,
+            MealLog.log_date >= start_date,
+            MealLog.log_date <= end_date,
+        )
+        .order_by(MealLog.log_date.asc(), MealLog.created_at.asc())
+        .all()
+    )
+
+    totals_by_date: dict[date, dict[str, float]] = {}
+
+    current_date = start_date
+    while current_date <= end_date:
+        totals_by_date[current_date] = {
+            "calories": 0.0,
+            "protein_g": 0.0,
+            "carbs_g": 0.0,
+            "fat_g": 0.0,
+        }
+        current_date += timedelta(days=1)
+
+    nutrient_field_map = {
+        "calories": "calories",
+        "protein": "protein_g",
+        "carbohydrates": "carbs_g",
+        "fat": "fat_g",
+    }
+
+    for log in logs:
+        day_totals = totals_by_date[log.log_date]
+
+        for nutrient in log.nutrients:
+            field_name = nutrient_field_map.get(nutrient.nutrient_code)
+
+            if field_name is not None:
+                day_totals[field_name] += nutrient.amount
+
+    return [
+        {
+            "date": log_date,
+            "calories": round(values["calories"], 6),
+            "protein_g": round(values["protein_g"], 6),
+            "carbs_g": round(values["carbs_g"], 6),
+            "fat_g": round(values["fat_g"], 6),
+        }
+        for log_date, values in sorted(totals_by_date.items())
+    ]

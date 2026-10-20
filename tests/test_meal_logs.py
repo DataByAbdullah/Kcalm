@@ -454,3 +454,109 @@ def test_logging_rolls_back_when_snapshot_persistence_fails(meal_log_db, monkeyp
         )
 
     assert db.query(MealLog).filter(MealLog.meal_plan_item_id == UUID(meal["id"])).count() == 0
+
+
+def intake_history(token: str, start_date: str, end_date: str):
+    return run_async(
+        api_request(
+            "GET",
+            f"/api/v1/nutrition/intake?from={start_date}&to={end_date}",
+            headers=auth_headers(token),
+        )
+    )
+
+
+def test_daily_intake_history_uses_only_logged_food(meal_log_db) -> None:
+    db, track_email, _, _ = meal_log_db
+    token, plan = create_user_plan(
+        db,
+        track_email,
+        plan_date="2027-03-10",
+    )
+    meal = first_meal(plan)
+
+    log_response = log_item(
+        token,
+        plan["meal_plan_id"],
+        meal["id"],
+        {"type": "ate_as_planned"},
+    )
+
+    assert log_response.status_code == 200
+
+    response = intake_history(
+        token,
+        "2027-03-09",
+        "2027-03-11",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body) == 3
+
+    assert body[0] == {
+        "date": "2027-03-09",
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+    }
+
+    logged_day = body[1]
+
+    assert logged_day["date"] == "2027-03-10"
+    assert logged_day["calories"] == pytest.approx(
+        meal["nutrition"]["calories"]
+    )
+    assert logged_day["protein_g"] == pytest.approx(
+        meal["nutrition"]["protein"]
+    )
+    assert logged_day["carbs_g"] == pytest.approx(
+        meal["nutrition"]["carbohydrates"]
+    )
+    assert logged_day["fat_g"] == pytest.approx(
+        meal["nutrition"]["fat"]
+    )
+
+    assert logged_day["calories"] != pytest.approx(
+        plan["daily_totals"]["calories"]
+    )
+
+    assert body[2] == {
+        "date": "2027-03-11",
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+    }
+
+
+def test_daily_intake_history_rejects_invalid_date_range(meal_log_db) -> None:
+    db, track_email, _, _ = meal_log_db
+    token, _ = create_user_plan(
+        db,
+        track_email,
+        plan_date="2027-03-12",
+    )
+
+    response = intake_history(
+        token,
+        "2027-03-20",
+        "2027-03-01",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_DATE_RANGE"
+
+
+def test_daily_intake_history_requires_authentication() -> None:
+    response = run_async(
+        api_request(
+            "GET",
+            "/api/v1/nutrition/intake?from=2027-03-01&to=2027-03-31",
+        )
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INVALID_TOKEN"
