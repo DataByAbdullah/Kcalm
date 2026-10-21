@@ -27,6 +27,10 @@ class UserProfile(TimestampedUUIDBase):
     )
     height_cm: Mapped[float] = mapped_column(Float, nullable=False)
     weight_kg: Mapped[float] = mapped_column(Float, nullable=False)
+    target_weight_kg: Mapped[float | None] = mapped_column(
+    Float,
+    nullable=True,
+    )
     activity_level: Mapped[ActivityLevel] = mapped_column(
         Enum(ActivityLevel, values_callable=enum_values, native_enum=False, length=32),
         nullable=False,

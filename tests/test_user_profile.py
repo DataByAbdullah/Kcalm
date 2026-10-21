@@ -74,6 +74,7 @@ def base_profile_payload() -> dict:
         "sex": "male",
         "height_cm": 178,
         "weight_kg": 82,
+        "target_weight_kg": 75,
         "activity_level": "moderate",
         "goal": "fat_loss",
         "target_rate": 0.5,
@@ -149,6 +150,7 @@ def test_authenticated_user_can_create_profile(profile_db) -> None:
     body = response.json()
     assert body["age"] == 29
     assert body["goal"] == "fat_loss"
+    assert body["target_weight_kg"] == 75
     user = db.query(User).filter(User.email == email).one()
     assert user.profile is not None
 
@@ -195,6 +197,7 @@ def test_profile_belongs_to_correct_user(profile_db) -> None:
         ("age", 0),
         ("height_cm", 20),
         ("weight_kg", 5),
+        ("target_weight_kg", 5),
         ("meals_per_day", 99),
     ],
 )
@@ -292,6 +295,19 @@ def test_weight_only_patch_works(profile_db) -> None:
     assert response.status_code == 200
     assert response.json()["weight_kg"] == 80
 
+def test_target_weight_patch_works(profile_db) -> None:
+    _, track = profile_db
+    email = track(unique_email())
+    token = register_and_login(email)
+    assert create_profile(token).status_code == 201
+
+    response = patch_profile(
+        token,
+        {"target_weight_kg": 72},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["target_weight_kg"] == 72
 
 def test_goal_and_cooking_time_update_works(profile_db) -> None:
     _, track = profile_db

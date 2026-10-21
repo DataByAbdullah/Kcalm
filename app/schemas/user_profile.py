@@ -29,6 +29,7 @@ class UserProfileCreateRequest(BaseModel):
     sex: Sex
     height_cm: float = Field(ge=50, le=260)
     weight_kg: float = Field(ge=20, le=500)
+    target_weight_kg: float | None = Field(default=None, ge=20, le=500)
     activity_level: ActivityLevel
     goal: Goal
     target_rate: float | None = Field(default=None, gt=0, le=2.5)
@@ -58,6 +59,7 @@ class UserProfileUpdateRequest(BaseModel):
     sex: Sex | None = None
     height_cm: float | None = Field(default=None, ge=50, le=260)
     weight_kg: float | None = Field(default=None, ge=20, le=500)
+    target_weight_kg: float | None = Field(default=None, ge=20, le=500)
     activity_level: ActivityLevel | None = None
     goal: Goal | None = None
     target_rate: float | None = Field(default=None, gt=0, le=2.5)
@@ -89,6 +91,7 @@ class UserProfileResponse(BaseModel):
     sex: Sex
     height_cm: float
     weight_kg: float
+    target_weight_kg: float | None
     activity_level: ActivityLevel
     goal: Goal
     target_rate: float | None
