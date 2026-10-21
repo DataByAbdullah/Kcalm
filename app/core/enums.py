@@ -79,3 +79,9 @@ class RecipeExecutionStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
+
+
+
+class MembershipTier(StrEnum):
+    FREE = "free"
+    PREMIUM = "premium"

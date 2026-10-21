@@ -1,5 +1,5 @@
 from uuid import UUID
-
+from app.core.enums import MembershipTier
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     full_name: str | None
+    membership_tier: MembershipTier
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

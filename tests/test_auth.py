@@ -90,6 +90,7 @@ def test_registration_succeeds(auth_db) -> None:
     body = response.json()
     assert body["email"] == email
     assert body["is_active"] is True
+    assert body["membership_tier"] == "free"
     assert "password" not in body
     assert "password_hash" not in body
     assert db.get(User, UUID(body["id"])) is not None
@@ -274,6 +275,7 @@ def test_current_user_valid_token_succeeds(auth_db) -> None:
     body = response.json()
     assert body["email"] == email
     assert body["is_active"] is True
+    assert body["membership_tier"] == "free"
     assert "password_hash" not in body
 
 
