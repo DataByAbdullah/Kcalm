@@ -1,4 +1,8 @@
 """SQLAlchemy models and reusable model utilities."""
+from app.models.weight_log import WeightLog
+from app.models.step_log import StepLog
+from app.models.habit import Habit, HabitCompletion
+from app.models.notification import Notification
 
 from app.models.extra_food_log import (
     ExtraFoodLog,
@@ -41,6 +45,11 @@ from app.models.user_profile import (
 )
 
 __all__ = [
+    "WeightLog",
+    "StepLog",
+    "Habit",
+    "HabitCompletion",
+    "Notification",
     "ExtraFoodLogNutrientSnapshot",
     "ExtraFoodLog",
     "TimestampMixin",

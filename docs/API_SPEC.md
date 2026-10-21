@@ -1,5 +1,36 @@
 # Kcalm Planned REST API
 
+## Implemented Progress and Account Extensions
+
+The current implemented endpoint contract and exact frontend/Postman payloads for the
+Priority 2/3 extensions are in [Frontend API Guide](FRONTEND_API_GUIDE.md).
+
+All routes require bearer authentication:
+
+| Methods | Routes |
+| --- | --- |
+| GET | `/api/v1/weight-logs` |
+| PUT, DELETE | `/api/v1/weight-logs/{log_date}` |
+| GET | `/api/v1/steps` |
+| GET, PUT, DELETE | `/api/v1/steps/{log_date}` |
+| GET, POST | `/api/v1/habits` |
+| PATCH, DELETE | `/api/v1/habits/{habit_id}` |
+| PUT | `/api/v1/habits/{habit_id}/completions/{log_date}` |
+| GET | `/api/v1/habits/{habit_id}/history` |
+| GET | `/api/v1/achievements`, `/api/v1/insights` |
+| GET | `/api/v1/notifications` |
+| POST | `/api/v1/notifications/sync` |
+| PATCH | `/api/v1/notifications/{notification_id}/read` |
+| POST | `/api/v1/auth/change-password` |
+| DELETE | `/api/v1/users/me` |
+| GET | `/api/v1/users/me/export` |
+| GET | `/api/v1/integrations`, `/api/v1/integrations/{code}` |
+
+Grocery detail responses add real completion counts. Recipe tags now support `pescatarian`
+and `halal`; saved profile allergies filter only reviewed ingredient metadata. Unknown
+allergens or missing reviews exclude candidates. Candidate preview adds scope/limitation
+and unsupported-allergy metadata; it never certifies medical or cross-contact safety.
+
 ## API Principles
 
 - REST endpoints are versioned under `/api/v1`.
@@ -45,7 +76,9 @@ Creates a user account.
 
 Authenticates a user and returns tokens.
 
-Refresh tokens and logout are intentionally deferred until a later authentication/session milestone.
+Access and refresh tokens are implemented. `POST /api/v1/auth/refresh` exchanges a refresh
+token for tokens. Password change/reset revokes older tokens through the user's token
+version; clients sign in again. Separate logout/session management remains deferred.
 
 ### `GET /api/v1/auth/me`
 
@@ -684,7 +717,7 @@ Example response:
       "reasons": ["wrong_meal_type"]
     }
   ],
-  "allergy_filtering_supported": false,
+  "allergy_filtering_supported": true,
   "unsupported_dietary_restrictions": [],
   "filter_order": [
     "active",
@@ -720,7 +753,7 @@ Hard constraints:
 - Meal type filtering uses explicit recipe tags.
 - Time filtering uses request `max_total_time_minutes` first, then profile `max_cooking_minutes`.
 - Required recipe equipment must be available in the user's profile.
-- Dietary restrictions are only supported when they map to explicit tags: `vegetarian`, `vegan`, `dairy_free`, or `gluten_free`.
+- Dietary restrictions map to explicit tags: `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, `pescatarian`, or `halal`.
 - `required_tags`, `excluded_tags`, and `excluded_recipe_ids` are hard filters.
 - Disliked foods are handled with exact normalized food-name matches against recipe ingredients.
 - Nutrition completeness is deterministic from persisted `recipe_nutrients`.
@@ -733,7 +766,10 @@ Soft preference metadata:
 
 Soft preferences do not rank or exclude candidates in this milestone.
 
-Allergy support is limited. Recipes do not yet store structured allergen metadata, so the service reports `allergy_filtering_supported = false` and does not infer allergens from recipe names, tags, or free text.
+Allergy support uses reviewed ingredient-food metadata. Missing reviews and unsupported
+profile allergy codes exclude candidates. `allergy_filtering_supported` reports whether
+the profile's codes are supported; cross-contact and medical safety remain unassessed.
+Metadata is never inferred from names or text. See the frontend guide for review procedures.
 
 Candidate rejection reason codes:
 
@@ -745,7 +781,9 @@ Candidate rejection reason codes:
 - `exceeds_time_limit`
 - `missing_required_equipment`
 - `dietary_restriction_mismatch`
-- `allergy_conflict` reserved for future structured allergen metadata
+- `allergy_conflict`
+- `allergy_metadata_missing`
+- `unsupported_allergy`
 - `disliked_food`
 - `incomplete_nutrition`
 
@@ -2424,7 +2462,7 @@ Response:
     "total_eligible": 0,
     "exclusion_summary": {},
     "excluded": [],
-    "allergy_filtering_supported": false,
+    "allergy_filtering_supported": true,
     "unsupported_dietary_restrictions": [],
     "filter_order": []
   }
@@ -2466,7 +2504,7 @@ Run the Postman smoke flow in this order with `base_url = http://127.0.0.1:8000/
 2. Profile: `POST /users/profile`, `PATCH /users/profile`; expect `201` then `200`.
 3. Nutrition targets: `POST /nutrition/calculate`, `GET /nutrition/micronutrients`; expect deterministic BMR/TDEE/macros and DRI micronutrients.
 4. Recipes and foods: `GET /foods`, optional `GET /foods/usda/search`, optional `POST /foods/usda/import/{fdc_id}`, `GET /recipes`.
-5. Candidate preview: `POST /recipes/candidates/preview`; verify candidates, rejected recipes, summary counts, and `allergy_filtering_supported=false`.
+5. Candidate preview: `POST /recipes/candidates/preview`; verify candidates, rejected recipes, summary counts, unsupported allergy codes, and ingredient-metadata-only scope.
 6. Daily plan: `POST /meal-plans`, then `GET /meal-plans/{meal_plan_id}`; verify saved targets, item nutrients, totals, deviations, and micronutrient coverage.
 7. Swap: `POST /meal-plans/{meal_plan_id}/items/{meal_plan_item_id}/swap`; verify locked meals and target snapshots are preserved.
 8. Weekly plan: `POST /weekly-meal-plans`; verify seven persisted daily plans.

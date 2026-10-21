@@ -130,6 +130,14 @@ Soft constraints may be weighted by product policy and tuned using solver run ou
 
 ## Candidate Filtering
 
+The current dietary extension requires explicit `pescatarian` and `halal` recipe tags
+when requested by the saved profile. Supported profile allergens are checked against
+reviewed ingredient-food metadata. Unknown profile allergy codes, unreviewed foods, and
+known conflicts are excluded before OR-Tools. Nothing is inferred from ingredient names.
+The same service is reused by previews, daily plans, swaps, weekly plans, and adaptive
+planning; solver mechanics and nutrition calculations are unchanged. Metadata describes
+ingredient content only, with no cross-contact or medical safety guarantee.
+
 Candidate filtering reduces the solver problem before OR-Tools.
 
 Filtering stages:

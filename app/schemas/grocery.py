@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from app.core.enums import GroceryCategory, GroceryListStatus
 
@@ -29,6 +29,21 @@ class GroceryListResponse(BaseModel):
     items: list[GroceryListItemResponse]
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+    @computed_field
+    @property
+    def checked_item_count(self) -> int:
+        return sum(item.checked for item in self.items)
+
+    @computed_field
+    @property
+    def completion_percent(self) -> float:
+        return round(self.checked_item_count / self.item_count * 100, 1) if self.items else 0.0
 
 
 class GroceryListSummaryResponse(BaseModel):

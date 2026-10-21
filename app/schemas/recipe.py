@@ -201,3 +201,6 @@ class RecipeCandidatePreviewResponse(BaseModel):
     allergy_filtering_supported: bool
     unsupported_dietary_restrictions: list[str]
     filter_order: list[str]
+    unsupported_allergies: list[str] = Field(default_factory=list)
+    allergy_filtering_scope: str = "reviewed_ingredient_metadata_only"
+    allergy_limitation: str = "Cross-contact and medical safety are not assessed."

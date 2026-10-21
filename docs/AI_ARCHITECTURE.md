@@ -2,6 +2,12 @@
 
 ## Boundary Rule
 
+Achievements and progress/nutrition insights are now deterministic read services and do
+not call OpenAI. Structured profile allergies can filter reviewed food allergen metadata
+through candidate filtering, but natural-language allergy/medical safety intent remains
+unsupported. AI cannot populate food allergen reviews or certify safety. The integration
+capability catalog reports configuration status without claiming verified connectivity.
+
 OpenAI is a language interface, not a nutrition source.
 
 LLMs must never provide the calories, macros, micronutrients, serving sizes, reference targets, recipe nutrition totals, daily totals, or validation status used by Kcalm. Those values come only from structured food data, reference tables, and deterministic backend calculations.

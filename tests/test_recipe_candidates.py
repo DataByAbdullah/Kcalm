@@ -605,7 +605,7 @@ def test_disliked_food_filtering_exact_match_and_allergy_limitation(candidate_db
     token = register_and_login(track_email(unique_email()))
     create_profile(
         token,
-        allergies=["chicken breast"],
+        allergies=[],
         disliked_foods=["Chicken Breast"],
     )
     chicken_recipe = create_recipe(
@@ -620,7 +620,7 @@ def test_disliked_food_filtering_exact_match_and_allergy_limitation(candidate_db
 
     assert response.status_code == 200
     body = response.json()
-    assert body["allergy_filtering_supported"] is False
+    assert body["allergy_filtering_supported"] is True
     assert excluded_by_id(body, chicken_recipe["id"])["reasons"] == ["disliked_food"]
 
 
@@ -642,7 +642,8 @@ def test_allergy_metadata_limitation_does_not_claim_allergy_safe_filtering(candi
     assert response.status_code == 200
     body = response.json()
     assert body["allergy_filtering_supported"] is False
-    assert candidate_by_id(body, chicken_recipe["id"]) is not None
+    assert candidate_by_id(body, chicken_recipe["id"]) is None
+    assert excluded_by_id(body, chicken_recipe["id"])["reasons"] == ["unsupported_allergy"]
 
 
 def test_preference_metadata_does_not_exclude_candidates(candidate_db) -> None:
@@ -729,7 +730,7 @@ def test_unsupported_dietary_restriction_is_reported_not_fabricated(candidate_db
     db, track_recipe, _, track_email = candidate_db
     setup_foods(db)
     token = register_and_login(track_email(unique_email()))
-    create_profile(token, dietary_restrictions=["halal"])
+    create_profile(token, dietary_restrictions=["kosher"])
     recipe = create_recipe(
         db,
         token,
@@ -742,5 +743,5 @@ def test_unsupported_dietary_restriction_is_reported_not_fabricated(candidate_db
 
     assert response.status_code == 200
     body = response.json()
-    assert "halal" in body["unsupported_dietary_restrictions"]
+    assert "kosher" in body["unsupported_dietary_restrictions"]
     assert candidate_by_id(body, recipe["id"]) is not None

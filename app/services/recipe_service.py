@@ -21,6 +21,8 @@ from app.schemas.recipe import RecipeCreateRequest, RecipeUpdateRequest
 
 
 ALLOWED_RECIPE_TAGS = {
+    "pescatarian",
+    "halal",
     "quick",
     "vegetarian",
     "vegan",

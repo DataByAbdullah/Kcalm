@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Enum, Float, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Enum, Float, ForeignKey, Index, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import FoodSource
@@ -31,6 +31,8 @@ class Food(TimestampedUUIDBase):
     source_food_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     category: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    allergen_reference: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     nutrients = relationship(
         "FoodNutrient",

@@ -11,10 +11,11 @@ from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.services.recipe_service import ALLOWED_RECIPE_TAGS, normalize_key
 from app.services.user_profile_service import load_user_with_profile_data
+from app.services.dietary_service import ALLERGEN_CODES, normalize_allergies
 
 
 MEAL_TYPE_TAGS = {"breakfast", "lunch", "dinner", "snack"}
-DIETARY_RESTRICTION_TAGS = {"vegetarian", "vegan", "dairy_free", "gluten_free"}
+DIETARY_RESTRICTION_TAGS = {"vegetarian", "vegan", "dairy_free", "gluten_free", "pescatarian", "halal"}
 DIETARY_RESTRICTION_ALIASES = {
     "dairy_free": "dairy_free",
     "dairyfree": "dairy_free",
@@ -27,7 +28,6 @@ EQUIPMENT_ALIASES = {
     "air_fryer": "air_fryer",
     "air_fryer_": "air_fryer",
 }
-ALLERGY_FILTERING_SUPPORTED = False
 
 
 def profile_not_found_error() -> APIErrorException:
@@ -45,6 +45,8 @@ class CandidateRejectionReason(StrEnum):
     MISSING_REQUIRED_EQUIPMENT = "missing_required_equipment"
     DIETARY_RESTRICTION_MISMATCH = "dietary_restriction_mismatch"
     ALLERGY_CONFLICT = "allergy_conflict"
+    ALLERGY_METADATA_MISSING = "allergy_metadata_missing"
+    UNSUPPORTED_ALLERGY = "unsupported_allergy"
     DISLIKED_FOOD = "disliked_food"
     INCOMPLETE_NUTRITION = "incomplete_nutrition"
     EXPLICITLY_EXCLUDED = "explicitly_excluded"
@@ -61,6 +63,7 @@ class CandidateFilterContext:
     dietary_restrictions: set[str] = field(default_factory=set)
     unsupported_dietary_restrictions: set[str] = field(default_factory=set)
     allergies: set[str] = field(default_factory=set)
+    unsupported_allergies: set[str] = field(default_factory=set)
     disliked_foods: set[str] = field(default_factory=set)
     preferred_foods: set[str] = field(default_factory=set)
     excluded_recipe_ids: set[UUID] = field(default_factory=set)
@@ -114,6 +117,7 @@ class CandidateFilterResult:
     allergy_filtering_supported: bool
     unsupported_dietary_restrictions: list[str]
     filter_order: list[str]
+    unsupported_allergies: list[str] = field(default_factory=list)
 
 
 FILTER_ORDER = [
@@ -183,7 +187,8 @@ def get_recipe_candidates(
         total_eligible=len(candidates),
         exclusion_summary=exclusion_summary,
         excluded=excluded,
-        allergy_filtering_supported=ALLERGY_FILTERING_SUPPORTED,
+        allergy_filtering_supported=not bool(context.unsupported_allergies),
+        unsupported_allergies=sorted(context.unsupported_allergies),
         unsupported_dietary_restrictions=sorted(context.unsupported_dietary_restrictions),
         filter_order=FILTER_ORDER,
     )
@@ -209,6 +214,7 @@ def build_candidate_context(
     profile_max_total_time = (
         loaded_user.profile.max_cooking_minutes if loaded_user.profile is not None else None
     )
+    allergies, unsupported_allergies = normalize_allergies([item.name for item in loaded_user.allergies])
     effective_max_total_time = (
         max_total_time_minutes
         if max_total_time_minutes is not None
@@ -224,7 +230,8 @@ def build_candidate_context(
         },
         dietary_restrictions=dietary_restrictions,
         unsupported_dietary_restrictions=unsupported_dietary_restrictions,
-        allergies={normalize_profile_text(item.name) for item in loaded_user.allergies},
+        allergies=allergies,
+        unsupported_allergies=unsupported_allergies,
         disliked_foods={
             normalize_profile_text(item.name) for item in loaded_user.disliked_foods
         },
@@ -279,6 +286,18 @@ def rejection_reasons_for_recipe(
         return [CandidateRejectionReason.MISSING_REQUIRED_EQUIPMENT]
     if not context.dietary_restrictions.issubset(recipe_tags):
         return [CandidateRejectionReason.DIETARY_RESTRICTION_MISMATCH]
+    if context.unsupported_allergies:
+        return [CandidateRejectionReason.UNSUPPORTED_ALLERGY]
+    if context.allergies:
+        for ingredient in recipe.ingredients:
+            codes = ingredient.food.allergen_codes
+            if (codes is None or not isinstance(codes, list) or not (ingredient.food.allergen_reference or "").strip()
+                    or any(not isinstance(code, str) or code not in ALLERGEN_CODES for code in codes)):
+                return [CandidateRejectionReason.ALLERGY_METADATA_MISSING]
+            if context.allergies.intersection(codes):
+                return [CandidateRejectionReason.ALLERGY_CONFLICT]
+        if not recipe.ingredients:
+            return [CandidateRejectionReason.ALLERGY_METADATA_MISSING]
     if disliked_food_names(recipe).intersection(context.disliked_foods):
         return [CandidateRejectionReason.DISLIKED_FOOD]
     if has_incomplete_required_nutrition(recipe=recipe, context=context):

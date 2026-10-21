@@ -8,7 +8,28 @@ Nutrition data must always preserve source attribution. Historical plans must re
 
 ## Final MVP Integrity Notes
 
-The current migration head is `20261013_0012`. A fresh PostgreSQL database was upgraded from base through head during final backend hardening.
+### Progress and Account Extension Schema
+
+The current head is `20261021_0018`, extending `fcdf61504ece` with six additive migrations.
+Existing migrations and unrelated email/profile indexes and constraints are untouched.
+
+| Table | Fields and Relationships |
+| --- | --- |
+| `weight_logs` | UUID, user FK CASCADE, log date, finite 20-500 kg weight, timestamps; unique user/date |
+| `step_logs` | UUID, user FK CASCADE, log date, integer steps 0-200000, timestamps; unique user/date |
+| `habits` | UUID, user FK CASCADE/index, nonblank name, nullable description, start date, active, timestamps |
+| `habit_completions` | UUID, habit FK CASCADE, date, timestamps; unique habit/date |
+| `notifications` | UUID, user FK CASCADE, event key, kind, title/message snapshots, nullable UTC read_at, timestamps; unique user/event and user/created index |
+
+`users.token_version` is non-null integer default 0 for revocation after password changes.
+`foods.allergen_codes` is nullable JSON and `foods.allergen_reference` is nullable text
+up to 1000 characters. Null means unknown; a reviewed empty code list has explicit source
+attribution. Nutrition rows are unchanged. Existing `full_name`, `membership_tier`,
+`target_weight_kg`, standalone snack logs, and nutrient snapshots are reused.
+All new owned records are covered by account deletion cascades and JSON export.
+Achievements/insights are calculated on read and have no fake-progress persistence tables.
+
+The original MVP hardening head was `20261013_0012`; later extensions are listed above.
 
 Important integrity boundaries:
 
@@ -97,7 +118,8 @@ Key columns:
 - `created_at`
 - `updated_at`
 
-Allergies will later become hard meal-planning constraints.
+Supported allergy codes are now hard candidate constraints based on reviewed food
+allergen metadata. Unknown codes and missing reviews exclude candidates.
 
 ### `user_dietary_restrictions`
 

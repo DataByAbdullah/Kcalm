@@ -1,5 +1,25 @@
 # Kcalm Backend Tasks
 
+## Priority 2 and 3 Extensions
+
+- [x] Dated weight upsert/history/delete with target-weight progress.
+- [x] Manual dated steps, history, correction, and deletion.
+- [x] Daily habits, edit/delete, per-date completion and history.
+- [x] Derive achievements from actual owned progress, intake, and execution records.
+- [x] Derive deterministic insights using real intake/progress; distinguish missing data.
+- [x] Persist notification inbox with idempotent achievement sync and read state.
+- [x] Authenticated password change with current-password verification and token revocation.
+- [x] Delete account through database cascades; preserve shared catalog and other users.
+- [x] Versioned JSON export of owned records/snapshots without credentials.
+- [x] Pescatarian/halal tags and reviewed-allergen candidate filtering shared by plan flows.
+- [x] Grocery detail completion counts while preserving existing editing.
+- [x] Integration capability registry with honest configuration/unimplemented status.
+- [x] Six focused additive migrations without unrelated index/constraint churn.
+- [x] Targeted tests for each extension and transactional rollback.
+- [x] Frontend/Postman integration guide with exact payloads and limitations.
+- [ ] Review production catalog allergens/diet certifications with source attribution.
+- [ ] Choose and implement wearable, push, and grocery-delivery providers with credentials.
+
 ## Project Foundation
 
 - [x] Create Python 3.12 FastAPI project structure.

@@ -1,5 +1,20 @@
 # Kcalm Backend
 
+## Progress and Account APIs
+
+Priority 2/3 backend support now includes dated weight logs and target-weight progress,
+manual steps, daily habits/completions, achievements and insights from real records,
+notification inbox/read state, password changes with session revocation, account deletion,
+JSON export, pescatarian/halal candidate tags, conservative reviewed-allergen filtering,
+grocery completion counts, and an honest integration capability catalog.
+
+Exact routes, request/response examples, limits, Postman instructions, migration details,
+and provider requirements are in [Frontend API Guide](docs/FRONTEND_API_GUIDE.md).
+Run `alembic upgrade head` before using these endpoints. Current head: `20261021_0018`.
+Secrets and `.env` are not changed by these additions.
+Verification for these extensions: 361 tests passed on a freshly migrated isolated
+PostgreSQL database; six-migration downgrade/re-upgrade and compile checks passed.
+
 Kcalm is a backend-only FastAPI service for deterministic nutrition planning, verified food and recipe data, meal-plan generation, logging, and Postman-ready APIs.
 
 This repository currently includes the backend foundation, PostgreSQL, Alembic, authentication, user profile capture, deterministic BMR/TDEE, calorie/macro targets, profile-based micronutrient targets, an internal structured food database, USDA FoodData Central search/import, a structured recipe database, deterministic recipe nutrition calculation, recipe candidate filtering, a non-persisted OR-Tools daily solver preview, persisted one-day meal plans, single-meal swaps, persisted weekly plans, deterministic weekly grocery preview aggregation, persisted smart grocery lists with editable items, ate-as-planned/corrected meal logging with planned-vs-actual summaries, adaptive next-day compensation, recipe execution sessions with immutable step snapshots, and a guarded AI natural-language constraint layer. It intentionally does not include frontend code, grocery delivery integrations, animation rendering, video/image generation, barcode/photo logging, restaurant matching, wearable sync, or AI-sourced nutrition numbers.
@@ -145,6 +160,8 @@ pytest -q
 ```
 
 Database-backed tests require local PostgreSQL to be running through Docker Compose.
+Run one test process per database; suites temporarily create shared recipe fixtures.
+Use a dedicated `DATABASE_URL` when running isolated verification or parallel processes.
 
 ## Configuration
 
@@ -660,7 +677,7 @@ Hard constraints:
 - Optional `meal_type` must match one of the explicit recipe tags: `breakfast`, `lunch`, `dinner`, or `snack`.
 - Time uses request `max_total_time_minutes` when provided, otherwise the profile's `max_cooking_minutes`.
 - Recipe equipment requirements must be a subset of profile equipment.
-- Supported dietary restrictions are matched through explicit recipe tags: `vegetarian`, `vegan`, `dairy_free`, and `gluten_free`.
+- Supported dietary restrictions use explicit tags: `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, `pescatarian`, and `halal`.
 - `excluded_recipe_ids`, `required_tags`, and `excluded_tags` are hard filters.
 - `require_complete_nutrition` filters out recipes with missing required nutrient data. If `required_nutrient_codes` is empty, all supported recipe nutrients are required.
 - Disliked foods use conservative exact food-name matching against recipe ingredients.
@@ -672,7 +689,7 @@ Soft preferences:
 
 Allergy limitation:
 
-- Recipes do not yet store structured allergen metadata, so allergy filtering is reported as unsupported with `allergy_filtering_supported = false`.
+- Allergy filtering uses reviewed food allergen metadata and excludes unknown/unreviewed ingredients. Supported-code coverage is reported by `allergy_filtering_supported`; this is not a cross-contact or medical safety guarantee.
 - The service does not infer allergens from names or ingredient text.
 
 Rejection reason codes:
@@ -685,7 +702,7 @@ Rejection reason codes:
 - `exceeds_time_limit`
 - `missing_required_equipment`
 - `dietary_restriction_mismatch`
-- `allergy_conflict` reserved for future structured allergen metadata
+- `allergy_conflict`, `allergy_metadata_missing`, `unsupported_allergy`
 - `disliked_food`
 - `incomplete_nutrition`
 
@@ -1676,7 +1693,7 @@ Use `Content-Type: application/json` for JSON bodies. After login, set `access_t
 5. Candidate Preview
    - `POST {{base_url}}/recipes/candidates/preview`
    - Body: `{"meal_type":"lunch","max_total_time_minutes":60,"require_complete_nutrition":true,"required_nutrient_codes":[],"excluded_recipe_ids":[],"required_tags":["quick"],"excluded_tags":[]}`
-   - Expected: `200 OK`, verify `candidates`, `exclusion_summary`, `filter_order`, and `allergy_filtering_supported=false`.
+   - Expected: `200 OK`, verify `candidates`, `exclusion_summary`, `filter_order`, `unsupported_allergies`, and the ingredient-metadata-only allergy scope.
 
 6. Daily Plan
    - `POST {{base_url}}/meal-plans`
@@ -2161,7 +2178,7 @@ Candidate preview expected shape:
       "reasons": ["wrong_meal_type"]
     }
   ],
-  "allergy_filtering_supported": false,
+  "allergy_filtering_supported": true,
   "unsupported_dietary_restrictions": [],
   "filter_order": [
     "active",

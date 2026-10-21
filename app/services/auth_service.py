@@ -1,4 +1,4 @@
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import APIErrorException
@@ -138,5 +138,24 @@ def reset_password(db: Session, token: str, new_password: str) -> None:
         )
 
     user.password_hash = hash_password(new_password)
+    user.token_version += 1
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise APIErrorException(500, "PASSWORD_CHANGE_FAILED", "Password could not be updated.") from exc
+
+
+def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:
+    if not verify_password(current_password, user.password_hash):
+        raise APIErrorException(400, "CURRENT_PASSWORD_INCORRECT", "Current password is incorrect.")
+    if verify_password(new_password, user.password_hash):
+        raise APIErrorException(422, "PASSWORD_UNCHANGED", "New password must differ from the current password.")
+    user.password_hash = hash_password(new_password)
+    user.token_version += 1
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise APIErrorException(500, "PASSWORD_CHANGE_FAILED", "Password could not be updated.") from exc

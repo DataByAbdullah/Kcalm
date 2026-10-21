@@ -14,6 +14,7 @@ from app.core.security import (
 from app.core.exceptions import APIErrorException, unauthorized_error
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     RefreshTokenRequest,
     ForgotPasswordRequest,
     MessageResponse,
@@ -24,6 +25,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.auth_service import (
+    change_password,
     authenticate_user,
     register_user,
     request_password_reset,
@@ -59,8 +61,8 @@ def login(
         )
     settings = get_settings()
     return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(user.id, user.token_version),
         expires_in=settings.access_token_expire_minutes * 60,
         refresh_expires_in=settings.refresh_token_expire_days * 24 * 60 * 60,
 )
@@ -87,7 +89,7 @@ def refresh_access_token(
 
     user = db.get(User, user_id)
 
-    if user is None:
+    if user is None or token_payload.get("ver", 0) != user.token_version:
         raise unauthorized_error(
             code="INVALID_REFRESH_TOKEN",
             message="Refresh token is invalid.",
@@ -103,8 +105,8 @@ def refresh_access_token(
     settings = get_settings()
 
     return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(user.id, user.token_version),
         expires_in=settings.access_token_expire_minutes * 60,
         refresh_expires_in=settings.refresh_token_expire_days * 24 * 60 * 60,
     )
@@ -113,6 +115,13 @@ def refresh_access_token(
 @router.get("/me", response_model=UserResponse)
 def read_current_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
+
+
+@router.post("/change-password", response_model=MessageResponse)
+def change_current_password(payload: ChangePasswordRequest, current_user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    change_password(db, current_user, payload.current_password, payload.new_password)
+    return MessageResponse(message="Password changed. Sign in again.")
 
 @router.post("/forgot-password", response_model=MessageResponse)
 def forgot_password(

@@ -181,6 +181,7 @@ def candidate_result_to_response(
             for item in result.excluded
         ],
         allergy_filtering_supported=result.allergy_filtering_supported,
+        unsupported_allergies=result.unsupported_allergies,
         unsupported_dietary_restrictions=result.unsupported_dietary_restrictions,
         filter_order=result.filter_order,
     )

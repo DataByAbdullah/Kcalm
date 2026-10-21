@@ -25,6 +25,25 @@ LLMs must never be used as the source of calories, macros, micronutrients, servi
 
 ## Backend Layers
 
+### Progress and Account Extensions
+
+Weight, steps, habits, notifications, achievements, insights, account export/deletion, and
+integration capability routes follow the existing router -> schema -> service -> model
+boundary. `tracking_common.py` centralizes date validation and transactional commit/rollback.
+Weight/steps use PostgreSQL upserts with user/date uniqueness. Habit completions and
+notification events use deduplicated inserts. Read APIs never create progress data.
+
+Achievements query owned persisted records; insights reuse existing intake aggregation
+and actual snapshots. They do not call AI or estimate missing intake. Logging weight does
+not automatically change saved profiles or plan targets. Password changes/resets increment
+`users.token_version`, invalidating previously issued access and refresh tokens. Account
+deletion relies on database cascades; export uses an explicit allowlist of owned tables
+and snapshots and excludes credentials and shared catalog rows.
+
+The integration registry reports implemented/configured capabilities without implying
+external connectivity. New provider implementations must supply their actual clients,
+authorization/credential lifecycle, and provider verification before becoming connected.
+
 ### API Layer
 
 The API layer is implemented with FastAPI routers. It owns HTTP concerns only:
@@ -130,7 +149,12 @@ The service returns candidates in deterministic name/id order, with no duplicate
 
 Soft preferences are metadata only in this milestone. Preferred food matches are exposed so a future solver can rank or score them, but filtering does not rank, optimize, or exclude based on preferences.
 
-Allergy filtering is intentionally limited because recipes do not yet store structured allergen metadata. The preview response exposes `allergy_filtering_supported = false`; the backend does not infer allergens from names or free text.
+Allergy filtering now uses reviewed per-food `allergen_codes` and `allergen_reference`.
+Missing reviews or unsupported profile allergy names exclude candidates; known conflicts
+also exclude them. Pescatarian and halal require explicit recipe tags. This same filtering
+applies to daily/weekly/adaptive plans and swaps. Cross-contact/medical safety remains
+unassessed, and natural-language AI safety claims remain unsupported. See the
+[Frontend API Guide](FRONTEND_API_GUIDE.md) for exact scope and operator review procedure.
 
 ### Daily Solver Preview
 

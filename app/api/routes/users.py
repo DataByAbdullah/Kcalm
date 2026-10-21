@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
+from app.services.account_service import delete_account, export_user_data
+from app.schemas.account import UserDataExportResponse
 from sqlalchemy.orm import Session
 from app.schemas.auth import UserResponse, UserUpdateRequest
 from app.core.database import get_db
@@ -13,6 +15,19 @@ from app.services.user_profile_service import create_profile, get_profile, updat
 
 
 router = APIRouter()
+
+
+@router.get("/me/export", response_model=UserDataExportResponse)
+def export_current_user(response: Response, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    response.headers["Content-Disposition"] = 'attachment; filename="kcalm-data.json"'
+    response.headers["Cache-Control"] = "no-store"
+    return export_user_data(db, current_user)
+
+
+@router.delete("/me", status_code=204)
+def delete_current_user(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    delete_account(db, current_user)
+    return Response(status_code=204)
 
 @router.patch("/me", response_model=UserResponse)
 def update_current_user(

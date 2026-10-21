@@ -38,7 +38,7 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(subject: str | UUID) -> str:
+def create_access_token(subject: str | UUID, token_version: int = 0) -> str:
 
     settings = get_settings()
     now = datetime.now(UTC)
@@ -47,6 +47,7 @@ def create_access_token(subject: str | UUID) -> str:
     payload = {
         "sub": str(subject),
         "type": "access",
+        "ver": token_version,
         "iat": now,
         "exp": expires_at,
     }
@@ -57,7 +58,7 @@ def create_access_token(subject: str | UUID) -> str:
         algorithm=settings.jwt_algorithm,
     )
 
-def create_refresh_token(subject: str | UUID) -> str:
+def create_refresh_token(subject: str | UUID, token_version: int = 0) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     expires_at = now + timedelta(days=settings.refresh_token_expire_days)
@@ -65,6 +66,7 @@ def create_refresh_token(subject: str | UUID) -> str:
     payload = {
         "sub": str(subject),
         "type": "refresh",
+        "ver": token_version,
         "iat": now,
         "exp": expires_at,
     }
@@ -189,7 +191,7 @@ def get_current_user(
         ) from exc
 
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or payload.get("ver", 0) != user.token_version:
         raise unauthorized_error(
             code="INVALID_TOKEN",
             message="Invalid or missing authentication token.",
