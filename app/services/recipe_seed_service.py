@@ -115,8 +115,11 @@ def recipe_payload_from_seed(
             RecipeStepRequest(
                 position=index,
                 instruction=step["instruction"],
+                phase=step.get("phase", "cook"),
                 duration_seconds=step.get("duration_seconds"),
                 timer=step.get("timer", False),
+                timer_required=step.get("timer_required"),
+                timer_seconds=step.get("timer_seconds"),
             )
             for index, step in enumerate(item["steps"], start=1)
         ],

@@ -168,6 +168,8 @@ SAFETY_RELATED_TERMS = {
 MEAL_TYPE_SYNONYMS = {
     "breakfast": "breakfast",
     "lunch": "lunch",
+    "pre_workout": "pre_workout",
+    "preworkout": "pre_workout",
     "dinner": "dinner",
     "supper": "dinner",
     "snack": "snack",

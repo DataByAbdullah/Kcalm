@@ -1,3 +1,6 @@
+from app.seed_data.p0_recipes import P0_RECIPE_SEED_DATA
+
+
 DEV_RECIPE_SEED_SOURCE = "development_fixture"
 
 
@@ -10,7 +13,7 @@ DEV_RECIPE_SEED_DATA: list[dict] = [
         "cook_time_minutes": 0,
         "difficulty": "easy",
         "instructions_summary": "Stir yogurt and oats together, then top with sliced banana.",
-        "tags": ["breakfast", "quick", "high_protein", "vegetarian"],
+        "tags": ["breakfast", "quick", "high_protein", "vegetarian", "pescatarian"],
         "equipment": [],
         "ingredients": [
             {
@@ -49,7 +52,7 @@ DEV_RECIPE_SEED_DATA: list[dict] = [
         "cook_time_minutes": 10,
         "difficulty": "easy",
         "instructions_summary": "Warm chicken, rice, and broccoli together with olive oil.",
-        "tags": ["lunch", "quick", "high_protein"],
+        "tags": ["lunch", "quick", "high_protein", "dairy_free", "gluten_free"],
         "equipment": ["stovetop"],
         "ingredients": [
             {
@@ -95,7 +98,7 @@ DEV_RECIPE_SEED_DATA: list[dict] = [
         "cook_time_minutes": 25,
         "difficulty": "medium",
         "instructions_summary": "Roast salmon and potato, then wilt spinach.",
-        "tags": ["dinner", "high_protein"],
+        "tags": ["dinner", "high_protein", "dairy_free", "gluten_free", "pescatarian"],
         "equipment": ["oven", "stovetop"],
         "ingredients": [
             {
@@ -172,3 +175,5 @@ DEV_RECIPE_SEED_DATA: list[dict] = [
         ],
     },
 ]
+
+DEV_RECIPE_SEED_DATA.extend(P0_RECIPE_SEED_DATA)

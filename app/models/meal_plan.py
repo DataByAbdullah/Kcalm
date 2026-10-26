@@ -145,7 +145,7 @@ class MealPlanItem(TimestampedUUIDBase):
     __tablename__ = "meal_plan_items"
     __table_args__ = (
         CheckConstraint(
-            "meal_type in ('breakfast', 'lunch', 'dinner', 'snack')",
+            "meal_type in ('breakfast', 'lunch', 'pre_workout', 'dinner', 'snack')",
             name="ck_meal_plan_items_meal_type_valid",
         ),
         CheckConstraint("servings > 0", name="ck_meal_plan_items_servings_positive"),

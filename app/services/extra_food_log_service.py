@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -43,6 +44,26 @@ def extra_food_log_save_failed_error() -> APIErrorException:
         status_code=500,
         code="EXTRA_FOOD_LOG_SAVE_FAILED",
         message="Extra food log could not be saved.",
+    )
+
+
+def list_extra_food_logs(
+    db: Session,
+    user: User,
+    log_date: date | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[ExtraFoodLog]:
+    query = db.query(ExtraFoodLog).filter(ExtraFoodLog.user_id == user.id)
+    if log_date is not None:
+        query = query.filter(ExtraFoodLog.log_date == log_date)
+    return (
+        query.order_by(
+            ExtraFoodLog.log_date.desc(), ExtraFoodLog.created_at.desc(), ExtraFoodLog.id.asc()
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
     )
 
 

@@ -726,7 +726,13 @@ def test_ai_meal_options_endpoint_returns_filtered_candidates(ai_db, monkeypatch
     assert body["interpretation"]["required_tags"] == ["quick"]
     assert body["interpretation"]["excluded_recipe_ids"]
     assert body["candidate_preview"] is not None
-    assert body["candidate_preview"]["total_eligible"] == 0
+    preview = body["candidate_preview"]
+    excluded_ids = set(body["interpretation"]["excluded_recipe_ids"])
+    assert preview["total_eligible"] > 0
+    assert all(candidate["recipe_id"] not in excluded_ids for candidate in preview["candidates"])
+    for candidate in preview["candidates"]:
+        recipe = db.get(Recipe, UUID(candidate["recipe_id"]))
+        assert "dev_chicken_breast" not in {item.food.source_food_id for item in recipe.ingredients}
 
 
 def test_ai_swap_uses_existing_swap_service_and_preserves_meal_type(ai_db, monkeypatch) -> None:
@@ -759,13 +765,14 @@ def test_ai_swap_uses_existing_swap_service_and_preserves_meal_type(ai_db, monke
         NaturalLanguageMealConstraintLLMOutput(
             requested_action="swap_meal",
             required_tags=["quick", "dairy_free"],
+            max_total_time_minutes=10,
         ),
     )
 
     response = ai_post(
         f"/api/v1/meal-plans/{plan['meal_plan_id']}/items/{target['id']}/ai-swap",
         token,
-        {"text": "Give me something quicker and dairy free"},
+        {"text": "Give me something dairy free in at most 10 minutes"},
     )
     body = response.json()
     swapped_lunch = next(meal for meal in body["meals"] if meal["id"] == target["id"])
@@ -816,13 +823,14 @@ def test_failed_swap_does_not_mutate_plan(ai_db, monkeypatch) -> None:
         NaturalLanguageMealConstraintLLMOutput(
             requested_action="swap_meal",
             required_tags=["vegan"],
+            max_total_time_minutes=5,
         ),
     )
 
     response = ai_post(
         f"/api/v1/meal-plans/{plan['meal_plan_id']}/items/{target['id']}/ai-swap",
         token,
-        {"text": "make lunch vegan"},
+        {"text": "make lunch vegan in at most 5 minutes"},
     )
     persisted = db.get(MealPlan, UUID(plan["meal_plan_id"]))
 

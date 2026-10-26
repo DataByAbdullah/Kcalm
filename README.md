@@ -567,8 +567,8 @@ Time and serving behavior:
 
 Tags and equipment:
 
-- Tags are explicit structured values such as `quick`, `breakfast`, `lunch`, `dinner`, `snack`, `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, and `high_protein`.
-- Equipment is stored as explicit per-recipe requirements using the current profile vocabulary style: `oven`, `stovetop`, `microwave`, `blender`, and `air_fryer`.
+- Tags are explicit structured values such as `quick`, `breakfast`, `lunch`, `pre_workout`, `dinner`, `snack`, `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, `pescatarian`, `halal`, and `high_protein`.
+- Equipment is stored as explicit per-recipe requirements: `oven`, `stovetop`, `microwave`, `blender`, `air_fryer`, and `slow_cooker`.
 - Dietary safety is not inferred from recipe names.
 
 Seed development recipes:
@@ -674,7 +674,7 @@ User Profile -> request constraints -> recipe candidate filtering -> preview res
 Hard constraints:
 
 - Active recipes only; archived recipes are excluded.
-- Optional `meal_type` must match one of the explicit recipe tags: `breakfast`, `lunch`, `dinner`, or `snack`.
+- Optional `meal_type` must match one of the explicit recipe tags: `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
 - Time uses request `max_total_time_minutes` when provided, otherwise the profile's `max_cooking_minutes`.
 - Recipe equipment requirements must be a subset of profile equipment.
 - Supported dietary restrictions use explicit tags: `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, `pescatarian`, and `halal`.
@@ -1581,7 +1581,7 @@ Endpoints:
 
 Supported structured intents:
 
-- Meal type: `breakfast`, `lunch`, `dinner`, `snack`.
+- Meal type: `breakfast`, `lunch`, `pre_workout`, `dinner`, `snack`.
 - Time: explicit numeric limits such as `15 minutes`.
 - Tags: `quick`, `vegetarian`, `vegan`, `dairy_free`, `gluten_free`, `high_protein`.
 - Food avoidance phrases such as `no chicken`, resolved locally to known `Food` rows before recipe exclusions are created.
@@ -1638,6 +1638,63 @@ Current limitations:
 - AI explanations are deferred.
 - AI interaction audit persistence is deferred; the current milestone logs privacy-safe success/failure metadata only.
 - Food avoidance uses conservative local Food resolution and returns controlled validation errors for unresolved or ambiguous foods.
+
+## Four-Slot Daily Plans (P0)
+
+Apply the additive migration and refresh the development catalog:
+
+```bash
+alembic upgrade head
+python -m app.scripts.seed_recipes
+```
+
+This repeatable command seeds/reviews 12 modeled food fixtures and 41 recipes: ten each
+for breakfast, lunch, pre-workout, and dinner, plus one separate snack. Recipes tagged
+both `dairy_free` and `gluten_free` number 7, 8, 6, and 8 respectively. All 15 solver
+nutrients are calculated from the existing approximate per-100g food records. Most
+recipes take 20 minutes or less, and all have executable preparation steps.
+
+Postman: bearer authentication, `base_url = http://127.0.0.1:8000/api/v1`.
+For an existing profile, first `PATCH {{base_url}}/users/profile`:
+
+```json
+{
+  "dietary_restrictions": ["dairy_free", "gluten_free"],
+  "equipment": ["stovetop", "oven", "air_fryer"],
+  "max_cooking_minutes": 20
+}
+```
+
+Then `POST {{base_url}}/meal-plans` with `Content-Type: application/json`:
+
+```json
+{
+  "plan_date": "2026-10-26",
+  "meal_slots": [
+    {"meal_type": "breakfast", "required": true},
+    {"meal_type": "lunch", "required": true},
+    {"meal_type": "pre_workout", "required": true},
+    {"meal_type": "dinner", "required": true}
+  ],
+  "require_complete_nutrition": true
+}
+```
+
+Expect `201` with all four `meals[].meal_type` values in that order. Use a new date or
+archive an existing plan for that date before repeating. Omitting `meal_slots` preserves
+the old breakfast/lunch/dinner plus optional snack defaults. `pre_workout` never aliases
+`snack`; standalone snack POST/GET/DELETE routes remain under `/nutrition/snacks`.
+
+Additional authenticated frontend contracts:
+
+- `GET /meal-plans/{meal_plan_id}/logs`: active meal logs as an array; reset logs disappear.
+- `POST /meal-plans/{meal_plan_id}/items/{item_id}/swap`: optional `{"recipe_id":"<replacement UUID>"}` selects that recipe only after normal candidate checks. The unchanged plan response includes each item's `recipe_id`. Ineligible choices return `NO_SWAP_CANDIDATE`.
+- `GET /nutrition/snacks?date=2026-10-26&limit=100&offset=0`: owned snack records as an array; optional date, limit 1-100, nonnegative offset.
+
+Ingredient reviews are explicit development specifications, not verified retail-product
+or cross-contact safety assessments. Unknown metadata still fails closed. There are no
+halal sourcing claims or gluten-free oat claims in this catalog. See
+[P0 Catalog](docs/P0_CATALOG.md) for counts, sources, and operational limitations.
 
 ## Postman
 

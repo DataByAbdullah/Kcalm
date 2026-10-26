@@ -233,3 +233,18 @@
 - [x] Run full `pytest -q` suite.
 - [x] Run `python -m compileall app`.
 - [x] Run FastAPI startup smoke with health/docs/OpenAPI checks.
+
+## Frontend P0 Only
+
+- [x] Add distinct `pre_workout` validation across schemas, recipe tags, candidates, plans, and swaps; retain `snack`.
+- [x] Add migration `20261026_0019` expanding only the meal-item type check; retain one head.
+- [x] Expand the repeatable development catalog to ten recipes per required meal type with complete structured nutrition and executable steps.
+- [x] Provide at least five dairy-free and gluten-free recipes per required meal type.
+- [x] Explicitly review all twelve fixture ingredient specifications with canonical allergen lists and nonblank source references.
+- [x] Verify exact four-slot frontend profile with a 201 integration test and fail-closed allergy/solver regression tests.
+- [x] Test owned plan-log/snack GET responses and explicit recipe swap selection through normal filtering.
+- [x] Document exact API requests, catalog counts, nutrition provenance, and review/cross-contact limitations.
+- [x] Run affected regression tests; correct catalog-size assumptions and rerun all 59 AI/P0 tests successfully.
+- [x] Verify upgrade from `20261021_0018` to the single `20261026_0019` head on isolated and existing development databases.
+- [x] Run full `pytest -q`: 379 passed in 519.49s (0:08:39).
+- [x] Run `git diff --check` and review final status without committing or pushing.

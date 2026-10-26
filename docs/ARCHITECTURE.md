@@ -137,7 +137,7 @@ Current hard filters:
 
 - Active recipe only.
 - Explicitly excluded recipe IDs.
-- Meal type tags: `breakfast`, `lunch`, `dinner`, and `snack`.
+- Meal type tags: `breakfast`, `lunch`, `pre_workout`, `dinner`, and `snack`.
 - Required and excluded recipe tags.
 - Total time, using request `max_total_time_minutes` first and profile `max_cooking_minutes` when the request omits an override.
 - Required equipment subset of profile equipment.
@@ -630,6 +630,26 @@ Audit outcomes:
 - User-owned resources use authenticated access and non-leaking ownership behavior where applicable.
 - Multi-row writes for recipe creation/update, plan generation, swaps, weekly generation, grocery generation/regeneration, meal logging, adaptive generation, and execution session creation are transactional.
 - OpenAI remains isolated to structured language interpretation; allergy/safety and medical constraints are conservative unsupported metadata, not false safety claims.
+
+## P0 Daily Slots and Reviewed Development Catalog
+
+`pre_workout` is a first-class recipe tag and validated API/persisted meal type; `snack`
+is separate. The existing generic solver slot assignment, snapshot persistence, weekly
+flows, and swap orchestration use explicit slot requests without a new solver or service.
+Legacy omitted-slot defaults remain breakfast/lunch/dinner plus optional snack.
+
+The repeatable development seed now has 12 modeled foods and ten recipes for each of
+the four frontend slots (plus the original snack). Recipe nutrition is still calculated
+only from structured food rows. Explicit per-fixture ingredient specifications and
+allergen lists live in `app/seed_data/allergen_reviews.py`, applied through the shared
+review validator within seed transactions. Production imports are not automatically
+reviewed. Candidate filtering remains fail-closed and never promises cross-contact safety.
+See [P0 Catalog](P0_CATALOG.md) for counts, source scope, and dietary limitations.
+
+The active-plan-log and standalone-snack GET handlers reuse existing response models
+and ownership boundaries. An optional `MealSwapRequest.recipe_id` narrows already
+filtered candidates before the existing solver; it cannot bypass profile constraints,
+allergen reviews, locked recipes, or nutrition validation.
 
 ## Testing Strategy
 

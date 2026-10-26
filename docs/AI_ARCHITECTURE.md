@@ -127,7 +127,7 @@ The AI integration is lazy-loaded and mockable. Automated tests inject a fake in
 The LLM may return only `NaturalLanguageMealConstraintLLMOutput`:
 
 - `requested_action`: `find_options`, `swap_meal`, or `unknown`.
-- `meal_type`: `breakfast`, `lunch`, `dinner`, or `snack`.
+- `meal_type`: `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
 - `max_total_time_minutes`.
 - `required_tags`.
 - `excluded_tags`.

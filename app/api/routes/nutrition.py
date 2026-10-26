@@ -37,6 +37,7 @@ from app.schemas.nutrition import (
 from app.services.extra_food_log_service import (
     create_extra_food_log,
     delete_extra_food_log,
+    list_extra_food_logs,
 )
 from app.services.user_profile_service import get_profile
 
@@ -148,6 +149,20 @@ def read_daily_intake(
     )
 
     return [DailyIntakeResponse(**item) for item in history]
+
+@router.get("/snacks", response_model=list[ExtraFoodLogResponse])
+def read_snacks(
+    log_date: date | None = Query(default=None, alias="date"),
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ExtraFoodLogResponse]:
+    return [
+        ExtraFoodLogResponse.model_validate(log, from_attributes=True)
+        for log in list_extra_food_logs(db, current_user, log_date, limit, offset)
+    ]
+
 
 @router.post(
     "/snacks",

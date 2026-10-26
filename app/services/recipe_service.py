@@ -31,6 +31,7 @@ ALLOWED_RECIPE_TAGS = {
     "high_protein",
     "breakfast",
     "lunch",
+    "pre_workout",
     "dinner",
     "snack",
 }
@@ -41,6 +42,7 @@ ALLOWED_RECIPE_EQUIPMENT = {
     "microwave",
     "blender",
     "air_fryer",
+    "slow_cooker",
 }
 
 EQUIPMENT_ALIASES = {

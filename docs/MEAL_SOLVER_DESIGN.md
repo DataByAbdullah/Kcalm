@@ -1,5 +1,15 @@
 # Kcalm Meal Solver Design
 
+## P0 Four-Slot Compatibility
+
+Explicit slots support `breakfast`, `lunch`, `pre_workout`, and `dinner`, all required,
+using the existing candidate-to-slot assignment and nutrition validation. `pre_workout`
+is a distinct recipe tag, not a renamed snack. Omitting slots preserves existing
+breakfast/lunch/dinner and optional snack defaults. No objective, nutrition tolerance,
+or safety relaxation was introduced for the expanded catalog. Explicit swap `recipe_id`
+selection narrows only already-eligible candidates before invoking the same solver.
+See [P0 Catalog](P0_CATALOG.md) for reviewed fixture scope and exact eligible counts.
+
 ## Purpose
 
 The meal solver creates meal plans and swaps that satisfy nutrition targets and user constraints using verified recipe candidates. It never accepts LLM-generated nutrition numbers.

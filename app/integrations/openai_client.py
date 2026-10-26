@@ -19,7 +19,7 @@ Rules:
 - Return only data matching the provided schema.
 - Do not estimate or output calories, macros, micronutrients, serving sizes, RDAs, food IDs, recipe IDs, meal-plan IDs, SQL, or commands.
 - Do not choose final recipes or meal plans.
-- Use only these meal types when explicit or clear: breakfast, lunch, dinner, snack.
+- Use only these meal types when explicit or clear: breakfast, lunch, pre_workout, dinner, snack.
 - Use only supported tags: quick, vegetarian, vegan, dairy_free, gluten_free, high_protein.
 - For vague "quick", use required_tags=["quick"] rather than inventing a time.
 - For explicit time phrases like "under 15 minutes", set max_total_time_minutes=15.

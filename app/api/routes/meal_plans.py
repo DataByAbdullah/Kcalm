@@ -48,6 +48,7 @@ from app.services.adaptive_planning_service import (
 )
 from app.services.ai_constraint_service import swap_meal_plan_item_from_text
 from app.services.meal_log_service import (
+    active_logs_for_plan,
     get_actual_summary,
     log_meal_plan_item,
     missing_nutrient_codes_for_log,
@@ -399,6 +400,16 @@ def read_meal_plan(
 ) -> MealPlanResponse:
     plan = get_meal_plan_detail(db=db, user=current_user, meal_plan_id=meal_plan_id)
     return plan_to_response(plan)
+
+
+@router.get("/{meal_plan_id}/logs", response_model=list[MealLogResponse])
+def read_meal_plan_logs(
+    meal_plan_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[MealLogResponse]:
+    plan = get_meal_plan_detail(db=db, user=current_user, meal_plan_id=meal_plan_id)
+    return [meal_log_to_response(log) for log in active_logs_for_plan(db, plan.id)]
 
 
 @router.get("/{meal_plan_id}/actual-summary", response_model=MealPlanActualSummaryResponse)

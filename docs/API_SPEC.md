@@ -31,6 +31,54 @@ and `halal`; saved profile allergies filter only reviewed ingredient metadata. U
 allergens or missing reviews exclude candidates. Candidate preview adds scope/limitation
 and unsupported-allergy metadata; it never certifies medical or cross-contact safety.
 
+## Implemented P0 Daily Plan Contract
+
+`pre_workout` is a distinct meal type throughout recipe CRUD, candidate preview, solve
+preview, daily/weekly persistence, and swaps. `snack` remains supported separately.
+Explicitly request the four required slots in the [README example](../README.md#four-slot-daily-plans-p0).
+Saved profile restrictions, equipment, and time limits still apply. Omitting slots keeps
+the existing defaults; no additional slot is silently inserted.
+
+All routes below require `Authorization: Bearer {{access_token}}`:
+
+### `GET /api/v1/meal-plans/{meal_plan_id}/logs`
+
+Returns `200` with an array of the existing `MealLogResponse` records, including
+`meal_log_id`, `meal_plan_id`, `meal_plan_item_id`, `recipe_id`, `log_date`, `type`,
+`status`, nutrient snapshots, and completeness metadata. Only active logs are returned,
+ordered by log date and creation time. Empty plans return `[]`; another user's plan
+or an unknown plan returns the existing `MEAL_PLAN_NOT_FOUND` (404).
+
+### `GET /api/v1/nutrition/snacks`
+
+Returns `200` with an array of `ExtraFoodLogResponse` (the same shape as POST):
+`id`, `log_date`, `name`, `food_id`, `quantity_grams`, `calories`, `protein_g`,
+`carbs_g`, `fat_g`, `created_at`, `updated_at`. Only the caller's records are visible.
+Optional query `date` is ISO YYYY-MM-DD; `limit` defaults to 100 (1-100), `offset`
+defaults to 0 (nonnegative). Ordered newest date/creation first, then ID for ties.
+An empty result is `[]`; invalid pagination or date returns 422.
+
+### Explicit Recipe Swap Selection
+
+`POST /api/v1/meal-plans/{meal_plan_id}/items/{meal_plan_item_id}/swap` accepts an
+optional UUID `recipe_id` in addition to its existing fields. When present, only that
+eligible recipe is considered; when omitted, automatic solver selection is unchanged.
+An archived, wrong-type, duplicate/locked, excluded, dietary/allergen-conflicting,
+unreviewed, or otherwise ineligible selection returns `NO_SWAP_CANDIDATE` (422).
+Invalid UUID returns 422. No plan is changed on failure. The existing 200
+`MealPlanResponse` includes the selected `meals[].recipe_id`.
+
+For Postman: seed with `python -m app.scripts.seed_recipes`, generate a four-slot day,
+preview `/recipes/candidates/preview` with `{"meal_type":"pre_workout"}`, and select
+an eligible UUID not already used in the plan. POST `{"recipe_id":"<UUID>"}` to swap;
+verify the `pre_workout` item changes and other items remain locked. Log that item
+with `{"type":"ate_as_planned"}`, then GET the plan's `/logs` and verify its item ID.
+POST a separate snack using the existing schema, GET `/nutrition/snacks?date=<date>`,
+and confirm it does not create a fifth daily-plan slot.
+
+The reviewed catalog is documented in [P0 Catalog](P0_CATALOG.md). Complete nutrition
+means all structured nutrient records are present, not that every dietary target is met.
+
 ## API Principles
 
 - REST endpoints are versioned under `/api/v1`.
@@ -644,7 +692,7 @@ This endpoint does not run OR-Tools, create meal plans, rank recipes, persist so
 
 Request fields:
 
-- `meal_type`: optional; one of `breakfast`, `lunch`, `dinner`, or `snack`.
+- `meal_type`: optional; one of `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
 - `max_total_time_minutes`: optional request override. When omitted, the profile's `max_cooking_minutes` is used.
 - `require_complete_nutrition`: default `false`. When `true`, recipes with incomplete required nutrients are excluded.
 - `required_nutrient_codes`: optional list of supported recipe nutrient codes. Only used by strict completeness filtering. When empty and strict completeness is enabled, all supported recipe nutrients are required.
@@ -1242,7 +1290,7 @@ The solver does not query recipes directly, does not call USDA, does not call Op
 Request fields:
 
 - `meal_slots`: optional list of slot objects. When omitted, the default is required breakfast, lunch, dinner, and optional snack.
-- `meal_slots[].meal_type`: `breakfast`, `lunch`, `dinner`, or `snack`.
+- `meal_slots[].meal_type`: `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
 - `meal_slots[].required`: boolean. Required slots must receive exactly one recipe. Optional slots receive zero or one recipe.
 - `max_total_time_minutes`: optional candidate-filter override.
 - `require_complete_nutrition`: default `true`; forwarded to candidate filtering.

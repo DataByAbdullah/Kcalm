@@ -20,10 +20,14 @@ def normalize_allergies(values):
     return supported, unsupported
 
 
-def review_food_allergens(db, food, codes, reference):
-    from app.services.tracking_common import commit_tracking
+def apply_food_allergen_review(food, codes, reference):
     if set(codes) - ALLERGEN_CODES or not reference.strip() or len(reference) > 1000:
         raise APIErrorException(422, "INVALID_ALLERGEN_REVIEW", "Use canonical allergen codes and a source reference.")
     food.allergen_codes = sorted(set(codes))
     food.allergen_reference = reference.strip()
+
+
+def review_food_allergens(db, food, codes, reference):
+    from app.services.tracking_common import commit_tracking
+    apply_food_allergen_review(food, codes, reference)
     commit_tracking(db)

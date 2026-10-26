@@ -98,7 +98,12 @@ def swap_meal_plan_item(
         required_tags=payload.required_tags,
         excluded_tags=payload.excluded_tags,
     )
-    if not candidate_result.candidates:
+    candidates = candidate_result.candidates
+    if payload.recipe_id is not None:
+        candidates = [
+            candidate for candidate in candidates if candidate.recipe_id == payload.recipe_id
+        ]
+    if not candidates:
         raise no_swap_candidate_error(
             {
                 "meal_type": target_item.meal_type,
@@ -111,7 +116,7 @@ def swap_meal_plan_item(
 
     solver_result = solve_daily_plan(
         DailyPlanSolverInput(
-            candidates=candidate_result.candidates,
+            candidates=candidates,
             targets=targets,
             meal_slots=[MealSlot(meal_type=target_item.meal_type, required=True)],
             config=SolverConfig(

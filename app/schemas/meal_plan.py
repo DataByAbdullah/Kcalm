@@ -8,7 +8,7 @@ from app.core.enums import MealPlanStatus
 from app.meal_planning.solver import SolverStatus, ToleranceStatus
 
 
-MealType = Literal["breakfast", "lunch", "dinner", "snack"]
+MealType = Literal["breakfast", "lunch", "pre_workout", "dinner", "snack"]
 
 
 class MealSlotRequest(BaseModel):
@@ -41,7 +41,7 @@ class DailySolverPreviewRequest(BaseModel):
 
 
 class SelectedMealResponse(BaseModel):
-    meal_type: str
+    meal_type: MealType
     recipe_id: UUID
     recipe_name: str
     serving_amount: float
@@ -112,6 +112,7 @@ class MealPlanCreateRequest(DailySolverPreviewRequest):
 
 
 class MealSwapRequest(BaseModel):
+    recipe_id: UUID | None = None
     max_total_time_minutes: int | None = Field(default=None, ge=0)
     require_complete_nutrition: bool = True
     required_tags: list[str] = Field(default_factory=list)
@@ -124,7 +125,7 @@ class MealSwapRequest(BaseModel):
 
 class PersistedMealPlanItemResponse(BaseModel):
     id: UUID
-    meal_type: str
+    meal_type: MealType
     recipe_id: UUID
     recipe_name: str
     servings: float

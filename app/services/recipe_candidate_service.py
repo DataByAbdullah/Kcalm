@@ -14,7 +14,7 @@ from app.services.user_profile_service import load_user_with_profile_data
 from app.services.dietary_service import ALLERGEN_CODES, normalize_allergies
 
 
-MEAL_TYPE_TAGS = {"breakfast", "lunch", "dinner", "snack"}
+MEAL_TYPE_TAGS = {"breakfast", "lunch", "pre_workout", "dinner", "snack"}
 DIETARY_RESTRICTION_TAGS = {"vegetarian", "vegan", "dairy_free", "gluten_free", "pescatarian", "halal"}
 DIETARY_RESTRICTION_ALIASES = {
     "dairy_free": "dairy_free",

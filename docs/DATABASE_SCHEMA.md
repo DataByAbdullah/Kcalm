@@ -602,7 +602,7 @@ Constraints:
 
 - `equipment` cannot be blank.
 - `(recipe_id, equipment)` is unique.
-- Equipment uses the current user-profile vocabulary style. Supported MVP values are `oven`, `stovetop`, `microwave`, `blender`, and `air_fryer`.
+- Equipment uses the current user-profile vocabulary style. Supported MVP values are `oven`, `stovetop`, `microwave`, `blender`, `air_fryer`, and `slow_cooker`.
 
 ### `recipe_nutrients`
 
@@ -878,7 +878,8 @@ Relationships:
 
 Constraints:
 
-- `meal_type` is `breakfast`, `lunch`, `dinner`, or `snack`.
+- `meal_type` is `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
+- Additive migration `20261026_0019` expands only `ck_meal_plan_items_meal_type_valid`; no column, index, user/email constraint, or historical item is rewritten. Downgrade requires explicitly handling existing pre-workout items before narrowing the check.
 - `servings` must be greater than zero.
 - `position` must be greater than zero.
 - `recipe_name_snapshot` cannot be blank.
