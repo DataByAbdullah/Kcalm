@@ -439,6 +439,12 @@ def candidate_nutrition_scaled(
         if not nutrient.complete or nutrient.amount < 0 or nutrient.unit != definition.unit:
             return None
         nutrition_scaled[code] = scale_amount(nutrient.amount)
+    # Carry known, non-target nutrients into snapshots without inventing solver targets.
+    for code, nutrient in nutrients_by_code.items():
+        definition = RECIPE_NUTRIENT_DEFINITION_BY_CODE.get(code)
+        if (code not in nutrition_scaled and definition is not None and nutrient.complete
+                and nutrient.amount >= 0 and nutrient.unit == definition.unit):
+            nutrition_scaled[code] = scale_amount(nutrient.amount)
     return nutrition_scaled
 
 
@@ -552,12 +558,16 @@ def daily_totals_from_meals(
     locked_nutrition: dict[str, float] | None = None,
 ) -> dict[str, float]:
     locked_nutrition = locked_nutrition or {}
+    additional_codes = set.intersection(*(set(meal.nutrition) for meal in meals)) if meals else set()
+    if locked_nutrition:
+        additional_codes &= set(locked_nutrition)
+    total_codes = list(dict.fromkeys([*required_codes, *sorted(additional_codes)]))
     totals_scaled = {
         code: scale_amount(locked_nutrition.get(code, 0))
-        for code in required_codes
+        for code in total_codes
     }
     for meal in meals:
-        for code in required_codes:
+        for code in total_codes:
             totals_scaled[code] += scale_amount(meal.nutrition.get(code, 0))
     return {code: unscale_amount(amount) for code, amount in totals_scaled.items()}
 

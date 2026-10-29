@@ -63,6 +63,20 @@ PUT replaces the total for the date; it does not increment it. Steps are strict 
 0-200000. Zero is a real recorded value; missing dates have no record. History and date rules
 match weight logs. No calories burned, steps target, or wearable sync is inferred.
 
+## Daily Metrics and Nutrition Summary
+
+The subsequent nutrition/tracking batch adds `PUT/GET/DELETE /daily-metrics/{log_date}`
+and `GET /daily-metrics?from=YYYY-MM-DD&to=YYYY-MM-DD`. PUT requires all three fields:
+`{"water_glasses":8,"fruit_veg_servings":5,"sleep_hours":7.5}`. History returns the
+usual `{items,total,limit,offset}` shape. Dates use the existing UTC+1-day write tolerance.
+The records are user-owned and included in account export/deletion.
+
+`GET /nutrition/intake` adds nullable `fiber_g` and `added_sugar_g`. `GET /insights`
+adds structured `nutrition_summary` without removing generic `items`. Do not calculate
+replacement scores in the frontend. See [Nutrition and Daily Tracking](NUTRITION_TRACKING.md)
+for exact fields, full requests/responses, transparent product-score formulas, null
+semantics for custom/legacy logs, and logging/nutrient completeness requirements.
+
 ## Daily Habits
 
 | Method | Route | Request | Response |
@@ -120,7 +134,8 @@ This sample assumes one logged day with 300 kcal and 20 g protein. Results use e
 meal nutrient snapshots plus standalone snack records. Missing days are not counted as
 zero-intake days. Optional insights report manual steps, first-to-last weight change
 (at least two measurements), and habit completions. No targets, weight, calories burned,
-adherence scores, diagnoses, or AI nutrition values are inferred. Empty periods return
+clinical/medical scores, diagnoses, or AI nutrition values are inferred. The additional
+nonclinical nutrition summary is explicitly calculated as documented above. Empty periods return
 `nutrition_data_missing`. Dates default to the last 30 days; maximum range is 366 days,
 and end date must be no later than UTC today plus one calendar day.
 
@@ -233,7 +248,8 @@ clients continue to live under `app/integrations`, with workflows under services
 
 Six additive migrations follow `fcdf61504ece`:
 `20261021_0013` weights, `0014` steps, `0015` habits/completions, `0016` notifications,
-`0017` token version, `0018` food allergen review. Final head: `20261021_0018`.
+`0017` token version, `0018` food allergen review. That extension's head was `20261021_0018`.
+The P0 head `20261026_0019` and daily-metrics head `20261028_0020` follow additively.
 No existing migrations or unrelated email/profile constraints were changed.
 
 Verification: original baseline 320 passed; final full suite 361 passed on a freshly

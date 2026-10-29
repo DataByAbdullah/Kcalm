@@ -27,10 +27,10 @@ LLMs must never be used as the source of calories, macros, micronutrients, servi
 
 ### Progress and Account Extensions
 
-Weight, steps, habits, notifications, achievements, insights, account export/deletion, and
+Weight, steps, daily metrics, habits, notifications, achievements, insights, account export/deletion, and
 integration capability routes follow the existing router -> schema -> service -> model
 boundary. `tracking_common.py` centralizes date validation and transactional commit/rollback.
-Weight/steps use PostgreSQL upserts with user/date uniqueness. Habit completions and
+Weight/steps/daily metrics use PostgreSQL upserts with user/date uniqueness. Habit completions and
 notification events use deduplicated inserts. Read APIs never create progress data.
 
 Achievements query owned persisted records; insights reuse existing intake aggregation
@@ -45,6 +45,25 @@ external connectivity. New provider implementations must supply their actual cli
 authorization/credential lifecycle, and provider verification before becoming connected.
 
 ### API Layer
+
+The nutrition/tracking batch adds owned water/fruit-veg/sleep records using the same
+tracking transaction/date helpers and account export/deletion boundaries. Its only new
+table is `daily_metrics`; clients cannot supply owner IDs or silently patch partial PUTs.
+
+Actual intake adds nullable fiber and added sugar from existing nutrient snapshot rows.
+Unknown nutrients propagate as null, including macro-only snacks and legacy snapshots.
+Recipe definitions/fixtures explicitly include `added_sugar`; solver snapshots carry known
+non-target nutrients without adding new objective terms or inventing targets. Imports
+with missing data remain incomplete until the source data is reviewed and recalculated.
+
+`app/nutrition/insights.py` is a pure deterministic scoring module. The insights service
+assembles owned actual snapshots, saved-plan targets (preferred) or calculated profile
+targets, and evidence of planned-meal logging and known calories and macros. Other unknown
+nutrients do not gate these scores. Scores cannot certify unrecorded consumption and are
+unavailable without enough evidence. Existing generic insight items remain unchanged.
+See [Nutrition and Daily Tracking](NUTRITION_TRACKING.md) for formulas,
+target precedence, score availability, API schemas, and limitations. No AI/provider calls
+or score persistence are introduced.
 
 The API layer is implemented with FastAPI routers. It owns HTTP concerns only:
 

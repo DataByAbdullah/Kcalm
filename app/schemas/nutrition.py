@@ -56,6 +56,8 @@ class DailyIntakeResponse(BaseModel):
     protein_g: float
     carbs_g: float
     fat_g: float
+    fiber_g: float | None
+    added_sugar_g: float | None
 
 class MicronutrientActualResponse(BaseModel):
     code: str

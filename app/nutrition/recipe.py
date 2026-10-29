@@ -34,6 +34,7 @@ RECIPE_NUTRIENT_DEFINITIONS: tuple[NutrientDefinition, ...] = (
     NutrientDefinition("carbohydrates", "Carbohydrates", "g"),
     NutrientDefinition("fat", "Fat", "g"),
     NutrientDefinition("fiber", "Fiber", "g"),
+    NutrientDefinition("added_sugar", "Added Sugar", "g"),
     NutrientDefinition("calcium", "Calcium", "mg"),
     NutrientDefinition("iron", "Iron", "mg"),
     NutrientDefinition("magnesium", "Magnesium", "mg"),

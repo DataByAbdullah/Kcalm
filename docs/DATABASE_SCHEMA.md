@@ -10,13 +10,15 @@ Nutrition data must always preserve source attribution. Historical plans must re
 
 ### Progress and Account Extension Schema
 
-The current head is `20261021_0018`, extending `fcdf61504ece` with six additive migrations.
+The current head is `20261028_0020`, following the P0 `20261026_0019` meal-type migration
+and the original six progress/account migrations after `fcdf61504ece`.
 Existing migrations and unrelated email/profile indexes and constraints are untouched.
 
 | Table | Fields and Relationships |
 | --- | --- |
 | `weight_logs` | UUID, user FK CASCADE, log date, finite 20-500 kg weight, timestamps; unique user/date |
 | `step_logs` | UUID, user FK CASCADE, log date, integer steps 0-200000, timestamps; unique user/date |
+| `daily_metrics` | UUID, user FK CASCADE, log date, integer water_glasses 0-100, float fruit_veg_servings 0-100, float sleep_hours 0-24, UTC timestamps; unique user/date |
 | `habits` | UUID, user FK CASCADE/index, nonblank name, nullable description, start date, active, timestamps |
 | `habit_completions` | UUID, habit FK CASCADE, date, timestamps; unique habit/date |
 | `notifications` | UUID, user FK CASCADE, event key, kind, title/message snapshots, nullable UTC read_at, timestamps; unique user/event and user/created index |
@@ -24,7 +26,8 @@ Existing migrations and unrelated email/profile indexes and constraints are unto
 `users.token_version` is non-null integer default 0 for revocation after password changes.
 `foods.allergen_codes` is nullable JSON and `foods.allergen_reference` is nullable text
 up to 1000 characters. Null means unknown; a reviewed empty code list has explicit source
-attribution. Nutrition rows are unchanged. Existing `full_name`, `membership_tier`,
+attribution. The nutrition/tracking batch adds explicit `added_sugar` gram rows to fixture
+foods and calculated recipes, not new nutrient columns. Existing `full_name`, `membership_tier`,
 `target_weight_kg`, standalone snack logs, and nutrient snapshots are reused.
 All new owned records are covered by account deletion cascades and JSON export.
 Achievements/insights are calculated on read and have no fake-progress persistence tables.
@@ -364,6 +367,7 @@ Current nutrient code examples:
 - `carbohydrates`
 - `fat`
 - `fiber`
+- `added_sugar`
 - `calcium`
 - `iron`
 - `magnesium`

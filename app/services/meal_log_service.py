@@ -319,6 +319,7 @@ def nutrients_for_recipe_correction(
             unit=nutrient.unit,
         )
         for nutrient in recipe.nutrients
+        if nutrient.complete and nutrient.missing_ingredient_count == 0
     ]
 
 
@@ -419,6 +420,7 @@ def get_daily_intake_history(
     )
     extra_logs = (
     db.query(ExtraFoodLog)
+    .options(selectinload(ExtraFoodLog.nutrients))
     .filter(
         ExtraFoodLog.user_id == user.id,
         ExtraFoodLog.log_date >= start_date,
@@ -432,7 +434,7 @@ def get_daily_intake_history(
 )
     
 
-    totals_by_date: dict[date, dict[str, float]] = {}
+    totals_by_date: dict[date, dict[str, float | None]] = {}
 
     current_date = start_date
     while current_date <= end_date:
@@ -441,6 +443,8 @@ def get_daily_intake_history(
             "protein_g": 0.0,
             "carbs_g": 0.0,
             "fat_g": 0.0,
+            "fiber_g": 0.0,
+            "added_sugar_g": 0.0,
         }
         current_date += timedelta(days=1)
 
@@ -451,6 +455,15 @@ def get_daily_intake_history(
         "fat": "fat_g",
     }
 
+    def add_optional_nutrients(day_totals, nutrients):
+        by_code = {nutrient.nutrient_code: nutrient for nutrient in nutrients}
+        for code, field in (("fiber", "fiber_g"), ("added_sugar", "added_sugar_g")):
+            nutrient = by_code.get(code)
+            if nutrient is None or nutrient.unit != "g":
+                day_totals[field] = None
+            elif day_totals[field] is not None:
+                day_totals[field] += nutrient.amount
+
     for log in logs:
         day_totals = totals_by_date[log.log_date]
 
@@ -459,6 +472,7 @@ def get_daily_intake_history(
 
             if field_name is not None:
                 day_totals[field_name] += nutrient.amount
+        add_optional_nutrients(day_totals, log.nutrients)
 
     for extra_log in extra_logs:
         day_totals = totals_by_date[extra_log.log_date]
@@ -467,13 +481,12 @@ def get_daily_intake_history(
         day_totals["protein_g"] += extra_log.protein_g
         day_totals["carbs_g"] += extra_log.carbs_g
         day_totals["fat_g"] += extra_log.fat_g
+        add_optional_nutrients(day_totals, extra_log.nutrients)
     return [
         {
             "date": log_date,
-            "calories": round(values["calories"], 6),
-            "protein_g": round(values["protein_g"], 6),
-            "carbs_g": round(values["carbs_g"], 6),
-            "fat_g": round(values["fat_g"], 6),
+            **{field: round(amount, 6) if amount is not None else None
+               for field, amount in values.items()},
         }
         for log_date, values in sorted(totals_by_date.items())
     ]

@@ -17,6 +17,8 @@ def nutrients(
     vitamin_d: float,
     vitamin_b12: float,
     folate: float,
+    *,
+    added_sugar: float,
 ) -> list[dict]:
     return [
         {"code": "calories", "name": "Calories", "amount": calories, "unit": "kcal"},
@@ -24,6 +26,7 @@ def nutrients(
         {"code": "carbohydrates", "name": "Carbohydrates", "amount": carbohydrates, "unit": "g"},
         {"code": "fat", "name": "Fat", "amount": fat, "unit": "g"},
         {"code": "fiber", "name": "Fiber", "amount": fiber, "unit": "g"},
+        {"code": "added_sugar", "name": "Added Sugar", "amount": added_sugar, "unit": "g"},
         {"code": "calcium", "name": "Calcium", "amount": calcium, "unit": "mg"},
         {"code": "iron", "name": "Iron", "amount": iron, "unit": "mg"},
         {"code": "magnesium", "name": "Magnesium", "amount": magnesium, "unit": "mg"},
@@ -37,13 +40,15 @@ def nutrients(
     ]
 
 
+# These twelve modeled ingredient specifications are plain and unsweetened. The explicit
+# added_sugar values are not inferred from carbohydrates or naturally occurring sugars.
 DEV_FOOD_SEED_DATA: list[dict] = [
     {
         "name": "Chicken Breast",
         "source_food_id": "dev_chicken_breast",
         "category": "protein",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(165, 31, 0, 3.6, 0, 15, 1.0, 29, 256, 74, 13, 0, 0.1, 0.3, 4),
+        "nutrients": nutrients(165, 31, 0, 3.6, 0, 15, 1.0, 29, 256, 74, 13, 0, 0.1, 0.3, 4, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 piece", "grams": 120}],
     },
     {
@@ -51,7 +56,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_cooked_rice",
         "category": "grain",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(130, 2.7, 28, 0.3, 0.4, 10, 0.2, 12, 35, 1, 0, 0, 0, 0, 58),
+        "nutrients": nutrients(130, 2.7, 28, 0.3, 0.4, 10, 0.2, 12, 35, 1, 0, 0, 0, 0, 58, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 cup", "grams": 158}],
     },
     {
@@ -59,7 +64,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_egg",
         "category": "protein",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(143, 12.6, 0.7, 9.5, 0, 56, 1.8, 12, 138, 142, 160, 0, 2.0, 0.9, 47),
+        "nutrients": nutrients(143, 12.6, 0.7, 9.5, 0, 56, 1.8, 12, 138, 142, 160, 0, 2.0, 0.9, 47, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 large", "grams": 50}],
     },
     {
@@ -67,7 +72,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_oats",
         "category": "grain",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(389, 16.9, 66.3, 6.9, 10.6, 54, 4.7, 177, 429, 2, 0, 0, 0, 0, 56),
+        "nutrients": nutrients(389, 16.9, 66.3, 6.9, 10.6, 54, 4.7, 177, 429, 2, 0, 0, 0, 0, 56, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1/2 cup dry", "grams": 40}],
     },
     {
@@ -75,7 +80,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_milk",
         "category": "dairy",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(61, 3.2, 4.8, 3.3, 0, 113, 0, 10, 132, 43, 46, 0, 1.2, 0.5, 5),
+        "nutrients": nutrients(61, 3.2, 4.8, 3.3, 0, 113, 0, 10, 132, 43, 46, 0, 1.2, 0.5, 5, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 cup", "grams": 244}],
     },
     {
@@ -83,7 +88,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_greek_yogurt",
         "category": "dairy",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(59, 10, 3.6, 0.4, 0, 110, 0.1, 11, 141, 36, 4, 0, 0, 0.7, 7),
+        "nutrients": nutrients(59, 10, 3.6, 0.4, 0, 110, 0.1, 11, 141, 36, 4, 0, 0, 0.7, 7, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "3/4 cup", "grams": 170}],
     },
     {
@@ -91,7 +96,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_spinach",
         "category": "vegetable",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(23, 2.9, 3.6, 0.4, 2.2, 99, 2.7, 79, 558, 79, 469, 28, 0, 0, 194),
+        "nutrients": nutrients(23, 2.9, 3.6, 0.4, 2.2, 99, 2.7, 79, 558, 79, 469, 28, 0, 0, 194, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 cup raw", "grams": 30}],
     },
     {
@@ -99,7 +104,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_broccoli",
         "category": "vegetable",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(34, 2.8, 6.6, 0.4, 2.6, 47, 0.7, 21, 316, 33, 31, 89, 0, 0, 63),
+        "nutrients": nutrients(34, 2.8, 6.6, 0.4, 2.6, 47, 0.7, 21, 316, 33, 31, 89, 0, 0, 63, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 cup chopped", "grams": 91}],
     },
     {
@@ -107,7 +112,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_banana",
         "category": "fruit",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(89, 1.1, 22.8, 0.3, 2.6, 5, 0.3, 27, 358, 1, 3, 8.7, 0, 0, 20),
+        "nutrients": nutrients(89, 1.1, 22.8, 0.3, 2.6, 5, 0.3, 27, 358, 1, 3, 8.7, 0, 0, 20, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 medium", "grams": 118}],
     },
     {
@@ -115,7 +120,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_salmon",
         "category": "protein",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(208, 20, 0, 13, 0, 9, 0.3, 27, 363, 59, 40, 0, 10, 3.2, 25),
+        "nutrients": nutrients(208, 20, 0, 13, 0, 9, 0.3, 27, 363, 59, 40, 0, 10, 3.2, 25, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 fillet", "grams": 150}],
     },
     {
@@ -123,7 +128,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_olive_oil",
         "category": "fat",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(884, 0, 0, 100, 0, 1, 0.6, 0, 1, 2, 0, 0, 0, 0, 0),
+        "nutrients": nutrients(884, 0, 0, 100, 0, 1, 0.6, 0, 1, 2, 0, 0, 0, 0, 0, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 tbsp", "grams": 13.5}],
     },
     {
@@ -131,7 +136,7 @@ DEV_FOOD_SEED_DATA: list[dict] = [
         "source_food_id": "dev_potato",
         "category": "starchy_vegetable",
         "description": "Development fixture food. Approximate nutrition per 100g; not production USDA data.",
-        "nutrients": nutrients(77, 2, 17.5, 0.1, 2.2, 12, 0.8, 23, 425, 6, 0, 19.7, 0, 0, 15),
+        "nutrients": nutrients(77, 2, 17.5, 0.1, 2.2, 12, 0.8, 23, 425, 6, 0, 19.7, 0, 0, 15, added_sugar=0),
         "servings": [{"name": "100 g", "grams": 100}, {"name": "1 medium", "grams": 173}],
     },
 ]

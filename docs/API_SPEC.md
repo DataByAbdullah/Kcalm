@@ -1,5 +1,42 @@
 # Kcalm Planned REST API
 
+## Implemented Nutrition and Tracking Batch
+
+All routes below require bearer authentication. Existing routes/fields remain available.
+
+| Method | Route | Request / Response |
+| --- | --- | --- |
+| PUT | `/api/v1/daily-metrics/{log_date}` | Required `{water_glasses,fruit_veg_servings,sleep_hours}`; 200 saved record |
+| GET | `/api/v1/daily-metrics/{log_date}` | 200 saved record or `DAILY_METRICS_NOT_FOUND` (404) |
+| GET | `/api/v1/daily-metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | 200 `{items,total,limit,offset}`; optional inclusive dates and pagination |
+| DELETE | `/api/v1/daily-metrics/{log_date}` | 204 or `DAILY_METRICS_NOT_FOUND` (404) |
+| GET | `/api/v1/nutrition/intake?from=YYYY-MM-DD&to=YYYY-MM-DD` | Existing daily array plus nullable `fiber_g`, `added_sugar_g` |
+| GET | `/api/v1/insights?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` | Existing response plus structured `nutrition_summary` |
+
+Daily metrics use full replacement PUT: partial PUT is 422; PATCH is unsupported.
+Water is a strict integer 0-100; servings are finite numeric 0-100; sleep is finite numeric
+0-24. These are input bounds, not recommended targets. Zero is a real entry. A saved
+record has `id`, `log_date`, those three values, `created_at`, `updated_at`. History is
+newest first, `limit=1..365` (default 100), `offset>=0`. Writes use the existing UTC+1-day
+tolerance and `FUTURE_LOG_DATE` error. Every query/write is scoped to the caller.
+
+Intake retains its zero-day behavior, with both added fields `0.0` when no intake entries
+exist. A field is null if any consumed entry lacks its compatible nutrient snapshot.
+Macro-only custom snacks therefore make both fields null; food-based snacks use their
+structured snapshots. Old snapshots are never silently backfilled.
+
+`nutrition_summary` contains `formula_version`, `nutrition_score`, `unavailable_reason`,
+`target_sources`, `calorie_adherence`, `macro_balance`, and `data_completeness`.
+It is a nonclinical target-alignment/logging metric. Per scorable day, alignment is
+`max(0,100*(1-abs(actual-target)/target))`, weighted by the fraction of planned items
+actually logged, then summed/divided by all calendar days in the range. Macro score is
+the mean of the three macro scores; nutrition score is the mean of calorie and macro
+scores. No scorable data means null scores. Existing generic insight items are unchanged.
+
+The [Nutrition and Daily Tracking contract](NUTRITION_TRACKING.md) specifies full JSON
+responses, exact eligibility/completeness definitions, target-source precedence, formulas,
+Postman-ready requests, fixture modeling, and limitations.
+
 ## Implemented Progress and Account Extensions
 
 The current implemented endpoint contract and exact frontend/Postman payloads for the

@@ -501,6 +501,8 @@ def test_daily_intake_history_uses_only_logged_food(meal_log_db) -> None:
         "protein_g": 0.0,
         "carbs_g": 0.0,
         "fat_g": 0.0,
+        "fiber_g": 0.0,
+        "added_sugar_g": 0.0,
     }
 
     logged_day = body[1]
@@ -529,6 +531,8 @@ def test_daily_intake_history_uses_only_logged_food(meal_log_db) -> None:
         "protein_g": 0.0,
         "carbs_g": 0.0,
         "fat_g": 0.0,
+        "fiber_g": 0.0,
+        "added_sugar_g": 0.0,
     }
 
 
@@ -631,6 +635,8 @@ def test_custom_standalone_snack_is_added_to_daily_intake(meal_log_db) -> None:
         "protein_g": 0.0,
         "carbs_g": 0.0,
         "fat_g": 0.0,
+        "fiber_g": 0.0,
+        "added_sugar_g": 0.0,
     }
 
 def test_food_based_standalone_snack_calculates_macros(meal_log_db) -> None:

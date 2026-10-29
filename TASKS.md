@@ -248,3 +248,20 @@
 - [x] Verify upgrade from `20261021_0018` to the single `20261026_0019` head on isolated and existing development databases.
 - [x] Run full `pytest -q`: 379 passed in 519.49s (0:08:39).
 - [x] Run `git diff --check` and review final status without committing or pushing.
+
+## Frontend Nutrition and Tracking Batch
+
+- [x] Add owned daily water/fruit-veg/sleep records with unique user/date, bounded finite inputs, full PUT upserts, history, GET/delete, and UTC+1 tolerance.
+- [x] Include daily metrics in existing account export and deletion cascades.
+- [x] Add only migration `20261028_0020` following `20261026_0019`; verify upgrade/downgrade/re-upgrade with one head and preserved catalog rows.
+- [x] Add explicit modeled `added_sugar` grams to every development food and deterministic recipe calculations; retain fiber and all 16 completeness checks.
+- [x] Preserve known non-target nutrients in solver/plan/actual snapshots without inventing optimization targets or rewriting history.
+- [x] Extend intake with nullable fiber/added-sugar fields; use actual food snack snapshots and unknown values for macro-only custom snacks.
+- [x] Keep generic insight items and add deterministic, unit-tested, coverage-adjusted nutrition scores with target provenance and unavailable states.
+- [x] Run daily-metrics targeted tests: 17 passed.
+- [x] Run nutrient/intake/solver/meal-log/P0 targeted tests, including incomplete recipe corrections: 59 passed as part of the final 156-test affected regression run.
+- [x] Run insights/scoring/existing nutrition targeted tests, including concurrent intake removal: 80 passed.
+- [x] Run all affected tracking/nutrition/insights/P0 tests together: 156 passed in 156.34s.
+- [x] Document exact API shapes, scoring formulas, input bounds, fixture modeling, null behavior, and limitations.
+- [x] Run final full `pytest -q`: 476 passed in 716.62s (0:11:56), including concurrent insight removal and incomplete recipe snapshot regressions.
+- [x] Verify `alembic heads` is solely `20261028_0020`, run `git diff --check`, and review status without committing or pushing.

@@ -1,5 +1,16 @@
 # Kcalm Backend
 
+## Nutrition and Daily Tracking
+
+The frontend nutrition/tracking batch adds authenticated daily water/fruit-veg/sleep
+records, nullable fiber/added-sugar intake totals, and deterministic nutrition insight
+scores. Exact endpoints, examples, formulas, and missing-data limitations are documented
+in [Nutrition and Daily Tracking](docs/NUTRITION_TRACKING.md).
+
+Apply `alembic upgrade head`, then `python -m app.scripts.seed_recipes` to refresh the
+complete development catalog. Current head: `20261028_0020`. No external credentials
+or AI calls are needed for this batch.
+
 ## Progress and Account APIs
 
 Priority 2/3 backend support now includes dated weight logs and target-weight progress,
@@ -10,7 +21,7 @@ grocery completion counts, and an honest integration capability catalog.
 
 Exact routes, request/response examples, limits, Postman instructions, migration details,
 and provider requirements are in [Frontend API Guide](docs/FRONTEND_API_GUIDE.md).
-Run `alembic upgrade head` before using these endpoints. Current head: `20261021_0018`.
+Run `alembic upgrade head` before using these endpoints. Their original head was `20261021_0018`.
 Secrets and `.env` are not changed by these additions.
 Verification for these extensions: 361 tests passed on a freshly migrated isolated
 PostgreSQL database; six-migration downgrade/re-upgrade and compile checks passed.
@@ -437,6 +448,7 @@ Current nutrient code strategy:
 - `carbohydrates`
 - `fat`
 - `fiber`
+- `added_sugar` (g; explicit source data, never derived from carbohydrates)
 - `calcium`
 - `iron`
 - `magnesium`
@@ -517,7 +529,7 @@ Duplicate behavior:
 Nutrient mapping:
 
 - USDA nutrient IDs and names are centralized in `app/integrations/usda_nutrients.py`.
-- Supported imported nutrient codes are the same MVP food nutrient codes listed above.
+- Supported imported nutrient codes cover the MVP food nutrients listed above except `added_sugar`, which is not yet mapped by the USDA importer. Missing added sugar remains unknown, not an inferred zero.
 - Unit conversion is deterministic for compatible units such as `kcal`, `g`, `mg`, and `mcg`.
 - Unsupported units are skipped rather than guessed.
 
@@ -1650,7 +1662,7 @@ python -m app.scripts.seed_recipes
 
 This repeatable command seeds/reviews 12 modeled food fixtures and 41 recipes: ten each
 for breakfast, lunch, pre-workout, and dinner, plus one separate snack. Recipes tagged
-both `dairy_free` and `gluten_free` number 7, 8, 6, and 8 respectively. All 15 solver
+both `dairy_free` and `gluten_free` number 7, 8, 6, and 8 respectively. All 16 recipe
 nutrients are calculated from the existing approximate per-100g food records. Most
 recipes take 20 minutes or less, and all have executable preparation steps.
 

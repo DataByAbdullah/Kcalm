@@ -13,7 +13,7 @@ from app.schemas.auth import UserResponse
 # Explicit allowlist keeps newly added private/security tables out of exports.
 EXPORT_ROOTS = (
     "user_profiles", "user_allergies", "user_dietary_restrictions", "user_preferred_foods",
-    "user_disliked_foods", "user_equipment", "weight_logs", "step_logs", "habits",
+    "user_disliked_foods", "user_equipment", "weight_logs", "step_logs", "daily_metrics", "habits",
     "notifications", "meal_plans", "weekly_meal_plans", "grocery_lists", "meal_logs",
     "extra_food_logs", "recipe_execution_sessions",
 )

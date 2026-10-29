@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.api.routes import weight_logs
 from app.api.routes import steps
+from app.api.routes import daily_metrics
 from app.api.routes import habits
 from app.api.routes import achievements
 from app.api.routes import insights
@@ -23,6 +24,7 @@ from app.api.routes import weekly_meal_plans
 api_router = APIRouter()
 api_router.include_router(weight_logs.router, prefix="/weight-logs", tags=["Weight Logs"])
 api_router.include_router(steps.router, prefix="/steps", tags=["Steps"])
+api_router.include_router(daily_metrics.router, prefix="/daily-metrics", tags=["Daily Metrics"])
 api_router.include_router(habits.router, prefix="/habits", tags=["Habits"])
 api_router.include_router(achievements.router, prefix="/achievements", tags=["Achievements"])
 api_router.include_router(insights.router, prefix="/insights", tags=["Insights"])
