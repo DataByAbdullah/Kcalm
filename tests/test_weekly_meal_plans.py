@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,7 +20,9 @@ from app.models.meal_plan import (
 from app.models.recipe import Recipe
 from app.models.user import User
 from app.schemas.weekly_plan import WeeklyMealPlanCreateRequest
+from app.seed_data.recipes import DEV_RECIPE_SEED_SOURCE
 from app.services.food_seed_service import seed_development_foods
+from app.services.recipe_seed_service import seed_development_recipes
 from app.services.weekly_plan_service import create_weekly_plan
 
 
@@ -457,6 +459,143 @@ def test_successful_weekly_plan_generates_seven_associated_days(weekly_db) -> No
         .filter(MealPlan.weekly_plan_id == weekly_plan_id)
         .count()
     ) > 0
+
+
+def test_seeded_p0_weekly_plan_supports_four_slots_daily_lookup_logs_and_swap(weekly_db) -> None:
+    db, track_email, _ = weekly_db
+    seed_development_recipes(db)
+    token = register_and_login(track_email(unique_email("weekly-p0")))
+    create_profile(
+        token,
+        equipment=["stovetop", "oven", "air_fryer", "slow_cooker", "microwave", "blender"],
+    )
+    headers = auth_headers(token)
+    meal_types = ["breakfast", "lunch", "pre_workout", "dinner"]
+    catalog = (
+        db.query(Recipe)
+        .filter(Recipe.source == DEV_RECIPE_SEED_SOURCE, Recipe.active.is_(True))
+        .all()
+    )
+    catalog_ids = {str(recipe.id) for recipe in catalog}
+    recipe_ids_by_type = {
+        meal_type: {
+            str(recipe.id)
+            for recipe in catalog
+            if meal_type in {link.tag.name for link in recipe.tag_links}
+        }
+        for meal_type in meal_types
+    }
+    body = weekly_body(
+        db,
+        catalog_ids,
+        meal_slots=[{"meal_type": meal_type, "required": True} for meal_type in meal_types],
+    )
+    candidate_filters = {
+        key: body[key]
+        for key in (
+            "max_total_time_minutes",
+            "require_complete_nutrition",
+            "excluded_recipe_ids",
+        )
+    }
+    for meal_type in meal_types:
+        assert len(recipe_ids_by_type[meal_type]) == 10
+        preview = run_async(
+            api_request(
+                "POST",
+                "/api/v1/recipes/candidates/preview",
+                headers=headers,
+                json={"meal_type": meal_type, **candidate_filters},
+            )
+        )
+        assert preview.status_code == 200, preview.text
+        assert {item["recipe_id"] for item in preview.json()["candidates"]} == recipe_ids_by_type[meal_type]
+
+    response = create_week(token, body)
+
+    assert response.status_code == 201, response.text
+    week = response.json()
+    daily_plans = week["daily_plans"]
+    assert len(daily_plans) == 7
+    start_date = date.fromisoformat(body["start_date"])
+    assert [day["plan_date"] for day in daily_plans] == [
+        (start_date + timedelta(days=offset)).isoformat() for offset in range(7)
+    ]
+    assert len({day["meal_plan_id"] for day in daily_plans}) == 7
+    weekly_plan_id = UUID(week["weekly_plan_id"])
+    for day in daily_plans:
+        assert len(day["meals"]) == 4
+        assert [meal["meal_type"] for meal in day["meals"]] == meal_types
+        assert all(meal["recipe_id"] in recipe_ids_by_type[meal["meal_type"]] for meal in day["meals"])
+        persisted = db.get(MealPlan, UUID(day["meal_plan_id"]))
+        assert persisted is not None
+        assert persisted.plan_date.isoformat() == day["plan_date"]
+        assert persisted.weekly_plan_id == weekly_plan_id
+
+        listed = run_async(
+            api_request(
+                "GET",
+                "/api/v1/meal-plans",
+                headers=headers,
+                params={"plan_date": day["plan_date"]},
+            )
+        )
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["total"] == 1
+        assert [item["meal_plan_id"] for item in listed.json()["items"]] == [day["meal_plan_id"]]
+        detail = run_async(
+            api_request("GET", f"/api/v1/meal-plans/{day['meal_plan_id']}", headers=headers)
+        )
+        assert detail.status_code == 200, detail.text
+        assert detail.json() == day
+
+    recipe_sets = selected_recipe_sets(week)
+    for current, following in zip(recipe_sets, recipe_sets[1:], strict=False):
+        assert current.isdisjoint(following)
+
+    child = daily_plans[0]
+    meal = next(item for item in child["meals"] if item["meal_type"] == "pre_workout")
+    prefix = f"/api/v1/meal-plans/{child['meal_plan_id']}"
+    logs = run_async(api_request("GET", f"{prefix}/logs", headers=headers))
+    assert logs.status_code == 200, logs.text
+    assert logs.json() == []
+
+    logged = run_async(
+        api_request(
+            "POST",
+            f"{prefix}/items/{meal['id']}/log",
+            headers=headers,
+            json={"type": "ate_as_planned"},
+        )
+    )
+    assert logged.status_code == 200, logged.text
+    assert logged.json()["meal_plan_id"] == child["meal_plan_id"]
+    assert logged.json()["meal_plan_item_id"] == meal["id"]
+    logs = run_async(api_request("GET", f"{prefix}/logs", headers=headers))
+    assert logs.status_code == 200, logs.text
+    assert logs.json() == [logged.json()]
+
+    replacement_id = sorted(recipe_ids_by_type["pre_workout"] - recipe_sets[0])[0]
+    swapped = run_async(
+        api_request(
+            "POST",
+            f"{prefix}/items/{meal['id']}/swap",
+            headers=headers,
+            json={"recipe_id": replacement_id, **candidate_filters},
+        )
+    )
+    assert swapped.status_code == 200, swapped.text
+    swapped_plan = swapped.json()
+    assert swapped_plan["meal_plan_id"] == child["meal_plan_id"]
+    assert [item["meal_type"] for item in swapped_plan["meals"]] == meal_types
+    swapped_meal = next(item for item in swapped_plan["meals"] if item["id"] == meal["id"])
+    assert swapped_meal["recipe_id"] == replacement_id
+    assert swapped_meal["recipe_id"] != meal["recipe_id"]
+    db.expire_all()
+    persisted = db.get(MealPlan, UUID(child["meal_plan_id"]))
+    assert persisted is not None
+    assert persisted.weekly_plan_id == weekly_plan_id
+    assert db.get(MealPlanItem, UUID(meal["id"])).recipe_id == UUID(replacement_id)
 
 
 def test_weekly_list_and_detail_are_owned_and_structured(weekly_db) -> None:
