@@ -22,13 +22,16 @@ USDA mapper is unchanged; it does not currently import `added_sugar`.
 
 | Method | Route | Result |
 | --- | --- | --- |
-| PUT | `/daily-metrics/{log_date}` | 200, create or replace owned record |
+| PUT | `/daily-metrics/{log_date}` | 200, create or update owned record |
 | GET | `/daily-metrics/{log_date}` | 200, record; missing record is 404 |
 | GET | `/daily-metrics?from=2026-10-01&to=2026-10-28` | 200, paginated history |
 | DELETE | `/daily-metrics/{log_date}` | 204; missing record is 404 |
 
-PUT requires all three fields. Partial PUT is 422, PATCH is not supported (405), and
-unknown fields are rejected. Values replace the date's entire record, not increment it.
+Initial PUT requires all three fields; a partial first write returns
+`422 DAILY_METRICS_INCOMPLETE_CREATE`. Existing records accept partial PUT with at least
+one field, preserving omitted values. Empty objects, explicit nulls and unknown fields
+are rejected with 422. PATCH is not supported (405). Provided values replace rather
+than increment the corresponding metrics.
 Repeated PUTs retain the same ID and creation timestamp. Zero is a real recorded value;
 GET of a missing day does not fabricate an all-zero record.
 

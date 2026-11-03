@@ -1,5 +1,19 @@
 # Kcalm Backend
 
+## Production Hardening
+
+Current Alembic head: `20261103_0021`, following `20261028_0020`. Apply migrations
+before starting API workers. Recipe creation/update/deletion and USDA import require
+an administrator; users register with `is_admin=false` and `/auth/me` exposes the role.
+Administrators are promoted through trusted database operations, never public payloads.
+`POST /auth/logout` revokes all existing access and refresh tokens for the caller.
+Authentication, AI and USDA import requests use shared PostgreSQL rate limits.
+Set a separate `JWT_SECRET` for `APP_ENV=production` or `prod`; the default secret
+prevents startup and interactive docs/OpenAPI are disabled in production.
+See [Production Hardening](docs/PRODUCTION_HARDENING.md) for exact limits and behavior.
+
+Applied Alembic migrations are immutable. Never rename an existing migration file or change an existing revision/down_revision after it may have been deployed. Schema changes must always be introduced through a new migration.
+
 ## Nutrition and Daily Tracking
 
 The frontend nutrition/tracking batch adds authenticated daily water/fruit-veg/sleep
@@ -8,7 +22,7 @@ scores. Exact endpoints, examples, formulas, and missing-data limitations are do
 in [Nutrition and Daily Tracking](docs/NUTRITION_TRACKING.md).
 
 Apply `alembic upgrade head`, then `python -m app.scripts.seed_recipes` to refresh the
-complete development catalog. Current head: `20261028_0020`. No external credentials
+complete development catalog. That batch's migration: `20261028_0020`. No external credentials
 or AI calls are needed for this batch.
 
 ## Progress and Account APIs
@@ -503,6 +517,7 @@ curl http://127.0.0.1:8000/api/v1/foods/<food_id> \
 ## USDA FoodData Central
 
 USDA endpoints require a bearer token and a configured `USDA_API_KEY`.
+Import additionally requires `is_admin=true`; search remains available to normal authenticated users.
 
 Search USDA foods:
 
@@ -607,7 +622,7 @@ curl "http://127.0.0.1:8000/api/v1/recipes?max_total_time_minutes=20" \
   -H "Authorization: Bearer <access_token>"
 ```
 
-Create recipe:
+Create recipe (administrator bearer token required; PATCH and DELETE also require admin):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/recipes \

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
 from app.api.router import api_router
-from app.core.config import get_settings
+from app.core.config import DEFAULT_JWT_SECRET, get_settings
 from app.core.exceptions import (
     APIErrorException,
     api_error_exception_handler,
@@ -25,11 +25,14 @@ def sanitize_validation_errors(errors: list[dict]) -> list[dict]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if settings.is_production and settings.jwt_secret == DEFAULT_JWT_SECRET:
+        raise RuntimeError("JWT_SECRET must be changed from the development default in production.")
 
     app = FastAPI(
         title=settings.app_name,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
     )
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     app.add_exception_handler(APIErrorException, api_error_exception_handler)

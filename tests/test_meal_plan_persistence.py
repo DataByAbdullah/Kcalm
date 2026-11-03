@@ -13,6 +13,7 @@ from app.models.food import Food
 from app.models.meal_plan import MealPlan, MealPlanItem
 from app.models.recipe import Recipe
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.schemas.meal_plan import MealPlanCreateRequest
 from app.services.food_seed_service import seed_development_foods
 from app.services.meal_plan_service import create_daily_meal_plan
@@ -253,6 +254,7 @@ def recipe_payload(
 
 
 def create_recipe(db, token: str, track_recipe, payload: dict) -> dict:
+    promote_admin(token)
     response = run_async(
         api_request(
             "POST",

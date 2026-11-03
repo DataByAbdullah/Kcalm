@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_admin
 from app.models.recipe import Recipe
 from app.models.user import User
 from app.schemas.recipe import (
@@ -236,7 +236,7 @@ def preview_recipe_candidates(
 @router.post("", response_model=RecipeDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_recipe_endpoint(
     payload: RecipeCreateRequest,
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> RecipeDetailResponse:
     return recipe_to_detail_response(create_recipe(db=db, payload=payload))
@@ -255,7 +255,7 @@ def read_recipe_detail(
 def patch_recipe(
     recipe_id: UUID,
     payload: RecipeUpdateRequest,
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> RecipeDetailResponse:
     return recipe_to_detail_response(update_recipe(db=db, recipe_id=recipe_id, payload=payload))
@@ -264,7 +264,7 @@ def patch_recipe(
 @router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_recipe(
     recipe_id: UUID,
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Response:
     archive_recipe(db=db, recipe_id=recipe_id)

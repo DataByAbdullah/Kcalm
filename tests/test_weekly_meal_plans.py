@@ -19,6 +19,7 @@ from app.models.meal_plan import (
 )
 from app.models.recipe import Recipe
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.schemas.weekly_plan import WeeklyMealPlanCreateRequest
 from app.seed_data.recipes import DEV_RECIPE_SEED_SOURCE
 from app.services.food_seed_service import seed_development_foods
@@ -196,6 +197,7 @@ def create_recipe(
     tags: list[str],
     food_source_ids: list[str],
 ) -> dict:
+    promote_admin(token)
     response = run_async(
         api_request(
             "POST",

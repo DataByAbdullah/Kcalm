@@ -25,7 +25,7 @@ def send_password_reset_email(email: str, reset_token: str) -> None:
     if not settings.smtp_host or not settings.smtp_from_email:
         return
 
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
         if settings.smtp_use_tls:
             smtp.starttls()
 

@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.exceptions import APIErrorException
@@ -10,13 +10,23 @@ from app.services.tracking_common import (
 
 def save_daily_metrics(db, user, log_date, payload):
     validate_record_date(log_date)
-    values = payload.model_dump()
-    statement = insert(DailyMetrics).values(user_id=user.id, log_date=log_date, **values)
+    values = payload.model_dump(exclude_unset=True)
     with tracking_transaction(db):
-        db.execute(statement.on_conflict_do_update(
-            constraint="uq_daily_metrics_user_date",
-            set_={**values, "updated_at": func.now()},
-        ))
+        if len(values) == 3:
+            statement = insert(DailyMetrics).values(user_id=user.id, log_date=log_date, **values)
+            db.execute(statement.on_conflict_do_update(
+                constraint="uq_daily_metrics_user_date",
+                set_={**values, "updated_at": func.now()},
+            ))
+        else:
+            result = db.execute(update(DailyMetrics).where(
+                DailyMetrics.user_id == user.id, DailyMetrics.log_date == log_date,
+            ).values(**values, updated_at=func.now()))
+            if result.rowcount == 0:
+                raise APIErrorException(
+                    422, "DAILY_METRICS_INCOMPLETE_CREATE",
+                    "All three metrics are required when creating a daily record.",
+                )
     return get_daily_metrics(db, user, log_date)
 
 

@@ -1,3 +1,7 @@
+import logging
+import smtplib
+
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -15,6 +19,18 @@ from app.core.security import (
 )
 from app.services.email_service import send_password_reset_email
 from app.models.user import User
+
+
+logger = logging.getLogger(__name__)
+
+
+def logout_user(db: Session, user: User) -> None:
+    try:
+        db.execute(update(User).where(User.id == user.id).values(token_version=User.token_version + 1))
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise APIErrorException(500, "LOGOUT_FAILED", "Could not log out. Please try again.") from exc
 
 
 def normalize_email(email: str) -> str:
@@ -95,10 +111,12 @@ def request_password_reset(db: Session, email: str) -> None:
         password_hash=user.password_hash,
     )
 
-    send_password_reset_email(
-        email=user.email,
-        reset_token=token,
-    )
+    try:
+        send_password_reset_email(email=user.email, reset_token=token)
+    except (smtplib.SMTPException, OSError):
+        # Delivery exceptions can contain SMTP credentials, recipient addresses or
+        # message contents. Log only the event, never the exception or reset token.
+        logger.warning("Password reset email delivery failed.")
 
 
 def reset_password(db: Session, token: str, new_password: str) -> None:

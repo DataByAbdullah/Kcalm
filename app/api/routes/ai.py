@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.routes.recipes import candidate_result_to_response
 from app.core.database import get_db
+from app.core.rate_limits import rate_limit_ai
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.ai import (
@@ -16,7 +17,7 @@ from app.services.ai_constraint_service import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(rate_limit_ai)])
 
 
 @router.post(

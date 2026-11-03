@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
+from app.core.rate_limits import rate_limit_usda_import
 from app.core.security import get_current_user
 from app.integrations.usda import USDAFoodDataCentralClient
 from app.models.food import Food
@@ -84,7 +85,7 @@ def search_usda_catalog(
 def import_usda_food(
     response: Response,
     fdc_id: int = Path(ge=1),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(rate_limit_usda_import),
     db: Session = Depends(get_db),
     usda_client: USDAFoodDataCentralClient = Depends(get_usda_client),
 ) -> USDAFoodImportResponse:

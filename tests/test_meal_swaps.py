@@ -11,6 +11,7 @@ from app.main import app
 from app.models.food import Food
 from app.models.recipe import Recipe
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.services.food_seed_service import seed_development_foods
 
 
@@ -199,6 +200,7 @@ def create_recipe(
     prep_time_minutes: int = 5,
     cook_time_minutes: int = 5,
 ) -> dict:
+    promote_admin(token)
     response = run_async(
         api_request(
             "POST",

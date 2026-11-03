@@ -10,6 +10,7 @@ from app.core.enums import FoodSource
 from tests.test_auth import auth_db
 from tests.test_weight_logs import request, tracking_user
 from tests.test_meal_plan_persistence import create_profile
+from tests.admin_helpers import promote_admin
 
 
 def recipe_body(food_id, tags):
@@ -19,6 +20,7 @@ def recipe_body(food_id, tags):
 
 def test_diet_tags_and_reviewed_allergens_flow_into_candidates_and_solver(tracking_user):
     db, token = tracking_user
+    promote_admin(token)
     create_profile(token, allergies=["peanuts"], dietary_restrictions=["halal", "pescatarian"])
     food = Food(name=f"Reviewed test food {uuid4().hex}", source=FoodSource.INTERNAL, category="test")
     db.add(food)

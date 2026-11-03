@@ -13,6 +13,7 @@ from app.main import app
 from app.models.food import Food, FoodNutrient
 from app.models.recipe import Recipe
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.services.food_seed_service import seed_development_foods
 
 
@@ -209,6 +210,7 @@ def recipe_payload(
 
 
 def create_recipe(db, token: str, track_recipe, **kwargs) -> dict:
+    promote_admin(token)
     response = run_async(
         api_request(
             "POST",
@@ -569,6 +571,7 @@ def test_nutrition_completeness_filter_strict_and_non_strict(candidate_db) -> No
         "tags": ["snack", "quick"],
         "equipment": [],
     }
+    promote_admin(token)
     create_response = run_async(
         api_request("POST", "/api/v1/recipes", headers=auth_headers(token), json=payload)
     )

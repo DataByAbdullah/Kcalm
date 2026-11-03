@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.rate_limits import client_rate_limit
 from app.core.security import (
     InvalidTokenError,
     TokenExpiredError,
@@ -30,13 +31,15 @@ from app.services.auth_service import (
     register_user,
     request_password_reset,
     reset_password,
+    logout_user,
 )
 
 
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(client_rate_limit("register"))])
 def register(
     payload: UserRegisterRequest,
     db: Session = Depends(get_db),
@@ -49,7 +52,8 @@ def register(
 )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse,
+             dependencies=[Depends(client_rate_limit("login"))])
 def login(
     payload: UserLoginRequest,
     db: Session = Depends(get_db),
@@ -117,13 +121,20 @@ def read_current_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+@router.post("/logout", response_model=MessageResponse)
+def logout(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    logout_user(db, current_user)
+    return MessageResponse(message="Logged out successfully.")
+
+
 @router.post("/change-password", response_model=MessageResponse)
 def change_current_password(payload: ChangePasswordRequest, current_user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     change_password(db, current_user, payload.current_password, payload.new_password)
     return MessageResponse(message="Password changed. Sign in again.")
 
-@router.post("/forgot-password", response_model=MessageResponse)
+@router.post("/forgot-password", response_model=MessageResponse,
+             dependencies=[Depends(client_rate_limit("forgot_password"))])
 def forgot_password(
     payload: ForgotPasswordRequest,
     db: Session = Depends(get_db),

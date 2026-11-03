@@ -137,6 +137,8 @@ def test_corrected_recipe_does_not_snapshot_incomplete_added_sugar_as_zero(meal_
     db, track_email, track_recipe, track_food = meal_log_db
     token, plan = create_user_plan(db, track_email, plan_date="2026-10-20")
     food = tracked_food(db, track_food, missing_added_sugar=True)
+    from tests.admin_helpers import promote_admin
+    promote_admin(token)
     created = request("POST", "/recipes", token, {
         "name": f"Incomplete corrected recipe {uuid4().hex}", "servings": 1,
         "prep_time_minutes": 0, "cook_time_minutes": 0, "tags": ["breakfast"],

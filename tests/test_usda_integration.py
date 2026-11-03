@@ -24,6 +24,7 @@ from app.integrations.usda_nutrients import (
 from app.main import app
 from app.models.food import Food, FoodNutrient, FoodServing
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.services.usda_food_service import normalize_usda_food
 
 
@@ -107,6 +108,7 @@ def register_and_login(email: str) -> str:
         )
     )
     assert login_response.status_code == 200
+    promote_admin(login_response.json()["access_token"])
     return login_response.json()["access_token"]
 
 

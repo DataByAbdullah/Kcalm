@@ -1,8 +1,31 @@
 # Progress, Account, Dietary, and Integration APIs
 
-All URLs below are relative to `http://127.0.0.1:8000/api/v1`. All require
-`Authorization: Bearer {{access_token}}`. JSON requests use `Content-Type: application/json`.
+All URLs below are relative to `http://127.0.0.1:8000/api/v1`. Authenticated routes require
+`Authorization: Bearer {{access_token}}`; registration, login and forgot-password are public.
+JSON requests use `Content-Type: application/json`.
 Errors retain `{"error":{"code":"...","message":"...","details":{}}}`.
+
+## Authentication and Catalog Authorization
+
+Registration and `/auth/me` return `is_admin`; public payloads cannot assign this role.
+Use an admin token for recipe POST/PATCH/DELETE and `POST /foods/usda/import/{fdc_id}`.
+Normal users receive `403 ADMIN_REQUIRED` for those mutations and retain recipe
+list/detail/candidate preview and USDA search access.
+
+Call authenticated `POST /auth/logout` with no body to revoke all current access and
+refresh tokens for the user. It returns `200 {"message":"Logged out successfully."}`;
+discard local tokens. Old access/refresh tokens fail with `INVALID_TOKEN` and
+`INVALID_REFRESH_TOKEN` respectively. Login with the password still works.
+Database write failure returns `500 LOGOUT_FAILED` so the frontend can retry.
+Forgot-password keeps the generic 200 response even when email delivery fails.
+
+Register/login/forgot-password have per-client limits of 5/60s, 10/60s and 5/300s;
+AI shares 30/60s per user and USDA import allows 20/60s per admin by default.
+On `429 RATE_LIMIT_EXCEEDED`, wait for the positive `Retry-After` seconds before
+retrying. Limits/windows are configurable. `503 RATE_LIMIT_UNAVAILABLE` indicates a
+database limiter outage. Other normal endpoints retain their existing behavior.
+Production disables docs/OpenAPI. Operational settings and the migration policy are
+in [Production Hardening](PRODUCTION_HARDENING.md).
 
 ## Weight History
 
@@ -66,8 +89,12 @@ match weight logs. No calories burned, steps target, or wearable sync is inferre
 ## Daily Metrics and Nutrition Summary
 
 The subsequent nutrition/tracking batch adds `PUT/GET/DELETE /daily-metrics/{log_date}`
-and `GET /daily-metrics?from=YYYY-MM-DD&to=YYYY-MM-DD`. PUT requires all three fields:
-`{"water_glasses":8,"fruit_veg_servings":5,"sleep_hours":7.5}`. History returns the
+and `GET /daily-metrics?from=YYYY-MM-DD&to=YYYY-MM-DD`. Initial PUT requires all three fields:
+`{"water_glasses":8,"fruit_veg_servings":5,"sleep_hours":7.5}`. Subsequent PUT accepts
+one or more fields and preserves omitted values. For example `{"water_glasses":10}`
+retains the existing servings and sleep. A partial first write returns
+`422 DAILY_METRICS_INCOMPLETE_CREATE`; empty objects, nulls, extras and invalid values
+return 422. Zero is valid, and PATCH remains unsupported. History returns the
 usual `{items,total,limit,offset}` shape. Dates use the existing UTC+1-day write tolerance.
 The records are user-owned and included in account export/deletion.
 
@@ -250,6 +277,8 @@ Six additive migrations follow `fcdf61504ece`:
 `20261021_0013` weights, `0014` steps, `0015` habits/completions, `0016` notifications,
 `0017` token version, `0018` food allergen review. That extension's head was `20261021_0018`.
 The P0 head `20261026_0019` and daily-metrics head `20261028_0020` follow additively.
+The production-hardening migration `20261103_0021` follows `20261028_0020` and adds
+the administrator flag and shared rate-limit buckets. Historical migrations are immutable.
 No existing migrations or unrelated email/profile constraints were changed.
 
 Verification: original baseline 320 passed; final full suite 361 passed on a freshly

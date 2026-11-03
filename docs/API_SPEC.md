@@ -1,19 +1,43 @@
 # Kcalm Planned REST API
 
+## Implemented Production Hardening
+
+`UserResponse`, including registration and `/auth/me`, adds `is_admin`. Registration
+always creates a non-admin and cannot assign the role. Recipe POST/PATCH/DELETE and
+USDA import require an administrator (`403 ADMIN_REQUIRED` for normal users).
+Recipe GET/list/candidate preview and USDA search retain authenticated-user access.
+`POST /api/v1/auth/logout` requires authentication and returns
+`200 {"message":"Logged out successfully."}`. It revokes all existing access and
+refresh tokens through the user's token version; failed writes return `500 LOGOUT_FAILED`.
+Old access tokens return `401 INVALID_TOKEN`; old refresh tokens return
+`401 INVALID_REFRESH_TOKEN`. Password login still issues fresh tokens.
+Forgot-password returns the same generic 200 message for known/unknown emails and
+expected SMTP/network delivery failures; no reset token or delivery details are returned.
+
+Rate-limited routes return `429 RATE_LIMIT_EXCEEDED` in the existing error envelope,
+with a positive integer `Retry-After` header in seconds. Defaults: register 5/60s,
+login 10/60s, forgot-password 5/300s per client IP; both `/api/v1/ai/*` endpoints share
+30/60s per authenticated user; USDA import 20/60s per admin. Failed requests consume
+quota. PostgreSQL limiter failures return `503 RATE_LIMIT_UNAVAILABLE`.
+All limits/windows are configurable; see [Production Hardening](PRODUCTION_HARDENING.md).
+Production rejects the default JWT secret and disables `/docs`, `/redoc`, `/openapi.json`.
+
 ## Implemented Nutrition and Tracking Batch
 
 All routes below require bearer authentication. Existing routes/fields remain available.
 
 | Method | Route | Request / Response |
 | --- | --- | --- |
-| PUT | `/api/v1/daily-metrics/{log_date}` | Required `{water_glasses,fruit_veg_servings,sleep_hours}`; 200 saved record |
+| PUT | `/api/v1/daily-metrics/{log_date}` | All three metrics on create; at least one metric on update; 200 saved record |
 | GET | `/api/v1/daily-metrics/{log_date}` | 200 saved record or `DAILY_METRICS_NOT_FOUND` (404) |
 | GET | `/api/v1/daily-metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | 200 `{items,total,limit,offset}`; optional inclusive dates and pagination |
 | DELETE | `/api/v1/daily-metrics/{log_date}` | 204 or `DAILY_METRICS_NOT_FOUND` (404) |
 | GET | `/api/v1/nutrition/intake?from=YYYY-MM-DD&to=YYYY-MM-DD` | Existing daily array plus nullable `fiber_g`, `added_sugar_g` |
 | GET | `/api/v1/insights?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` | Existing response plus structured `nutrition_summary` |
 
-Daily metrics use full replacement PUT: partial PUT is 422; PATCH is unsupported.
+Daily metrics PUT supports partial updates to existing records, preserving omitted values.
+New dates require all three metrics, otherwise `422 DAILY_METRICS_INCOMPLETE_CREATE`.
+Empty objects, explicit nulls and extra fields return 422. PATCH is unsupported.
 Water is a strict integer 0-100; servings are finite numeric 0-100; sleep is finite numeric
 0-24. These are input bounds, not recommended targets. Zero is a real entry. A saved
 record has `id`, `log_date`, those three values, `created_at`, `updated_at`. History is

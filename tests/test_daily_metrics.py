@@ -64,7 +64,9 @@ def test_daily_metrics_auth_partial_put_and_dates(tracking_user):
     for method, url, body in [("GET", path, None), ("GET", "/daily-metrics", None),
                               ("PUT", path, BODY), ("DELETE", path, None)]:
         assert request(method, url, body=body).status_code == 401
-    assert request("PUT", path, token, {"water_glasses": 5}).status_code == 422
+    partial_create = request("PUT", path, token, {"water_glasses": 5})
+    assert partial_create.status_code == 422
+    assert partial_create.json()["error"]["code"] == "DAILY_METRICS_INCOMPLETE_CREATE"
     assert request("PATCH", path, token, BODY).status_code == 405
     for query in ("from=2026-02-01&to=2026-01-01", "limit=0", "offset=-1", "from=invalid"):
         assert request("GET", "/daily-metrics?" + query, token).status_code == 422
@@ -73,6 +75,51 @@ def test_daily_metrics_auth_partial_put_and_dates(tracking_user):
         assert request("PUT", f"/daily-metrics/{today + timedelta(days=offset)}", token, BODY).status_code == 200
     rejected = request("PUT", f"/daily-metrics/{today + timedelta(days=2)}", token, BODY)
     assert rejected.status_code == 422 and rejected.json()["error"]["code"] == "FUTURE_LOG_DATE"
+
+
+@pytest.mark.parametrize("changes", [
+    {"water_glasses": 10}, {"fruit_veg_servings": 6.5}, {"sleep_hours": 8},
+    {"water_glasses": 0, "fruit_veg_servings": 0},
+])
+def test_daily_metrics_partial_put_preserves_omitted_values(tracking_user, changes):
+    _, token = tracking_user
+    path = "/daily-metrics/2026-01-01"
+    created = request("PUT", path, token, BODY)
+    assert created.status_code == 200
+    response = request("PUT", path, token, changes)
+    assert response.status_code == 200, response.text
+    expected = {**BODY, **changes}
+    assert {key: response.json()[key] for key in BODY} == expected
+    assert response.json()["id"] == created.json()["id"]
+    assert response.json()["created_at"] == created.json()["created_at"]
+    assert request("GET", path, token).json() == response.json()
+
+
+@pytest.mark.parametrize("changes", [
+    {}, {"water_glasses": None}, {"fruit_veg_servings": None}, {"sleep_hours": None},
+    {"water_glasses": True}, {"water_glasses": "5"}, {"sleep_hours": "8"},
+    {"fruit_veg_servings": True}, {"extra": 1},
+])
+def test_daily_metrics_invalid_partial_put_does_not_change_record(tracking_user, changes):
+    _, token = tracking_user
+    path = "/daily-metrics/2026-01-01"
+    created = request("PUT", path, token, BODY)
+    assert created.status_code == 200
+    assert request("PUT", path, token, changes).status_code == 422
+    assert request("GET", path, token).json() == created.json()
+
+
+def test_daily_metrics_partial_create_cannot_use_another_users_record(tracking_user, auth_db):
+    _, token = tracking_user
+    _, track = auth_db
+    path = "/daily-metrics/2026-01-01"
+    assert request("PUT", path, token, BODY).status_code == 200
+    other = register_and_login(track(unique_email("partial-other")))
+    response = request("PUT", path, other, {"sleep_hours": 6})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "DAILY_METRICS_INCOMPLETE_CREATE"
+    assert request("GET", path, other).status_code == 404
+    assert request("PUT", path, other, BODY).status_code == 200
 
 
 def test_daily_metrics_database_constraints_export_and_account_cascade(tracking_user):

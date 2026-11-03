@@ -10,8 +10,9 @@ Nutrition data must always preserve source attribution. Historical plans must re
 
 ### Progress and Account Extension Schema
 
-The current head is `20261028_0020`, following the P0 `20261026_0019` meal-type migration
-and the original six progress/account migrations after `fcdf61504ece`.
+The current head is `20261103_0021`, following daily metrics `20261028_0020`, the P0
+`20261026_0019` meal-type migration and the original six progress/account migrations
+after `fcdf61504ece`. The latest migration adds the admin flag and rate-limit buckets.
 Existing migrations and unrelated email/profile indexes and constraints are untouched.
 
 | Table | Fields and Relationships |
@@ -19,11 +20,16 @@ Existing migrations and unrelated email/profile indexes and constraints are unto
 | `weight_logs` | UUID, user FK CASCADE, log date, finite 20-500 kg weight, timestamps; unique user/date |
 | `step_logs` | UUID, user FK CASCADE, log date, integer steps 0-200000, timestamps; unique user/date |
 | `daily_metrics` | UUID, user FK CASCADE, log date, integer water_glasses 0-100, float fruit_veg_servings 0-100, float sleep_hours 0-24, UTC timestamps; unique user/date |
+| `rate_limit_buckets` | HMAC-SHA256 `key_hash` primary key (64 chars), positive integer `request_count`, non-null timezone-aware `expires_at` with index; one reusable row per scope/identity, no raw identifiers |
 | `habits` | UUID, user FK CASCADE/index, nonblank name, nullable description, start date, active, timestamps |
 | `habit_completions` | UUID, habit FK CASCADE, date, timestamps; unique habit/date |
 | `notifications` | UUID, user FK CASCADE, event key, kind, title/message snapshots, nullable UTC read_at, timestamps; unique user/event and user/created index |
 
-`users.token_version` is non-null integer default 0 for revocation after password changes.
+`users.token_version` is non-null integer default 0 for revocation after password changes
+and logout. `users.is_admin` is non-null boolean with application/database default false;
+only trusted database operations assign the role. Applied migrations are immutable; all
+schema changes require a new revision. Rate-limit buckets have no user FK or account
+export payload; only digests/counts/expirations are stored and expired rows can be deleted.
 `foods.allergen_codes` is nullable JSON and `foods.allergen_reference` is nullable text
 up to 1000 characters. Null means unknown; a reviewed empty code list has explicit source
 attribution. The nutrition/tracking batch adds explicit `added_sugar` gram rows to fixture
@@ -54,6 +60,8 @@ Key columns:
 - `email`
 - `password_hash`
 - `is_active`
+- `is_admin` (non-null, default false)
+- `token_version` (non-null, default 0)
 - `created_at`
 - `updated_at`
 

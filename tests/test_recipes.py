@@ -12,6 +12,7 @@ from app.main import app
 from app.models.food import Food, FoodNutrient
 from app.models.recipe import Recipe
 from app.models.user import User
+from tests.admin_helpers import promote_admin
 from app.seed_data.recipes import DEV_RECIPE_SEED_DATA, DEV_RECIPE_SEED_SOURCE
 from app.services.food_seed_service import seed_development_foods
 from app.services.recipe_seed_service import seed_development_recipes
@@ -115,6 +116,7 @@ def register_and_login(email: str) -> str:
         )
     )
     assert login_response.status_code == 200
+    promote_admin(login_response.json()["access_token"])
     return login_response.json()["access_token"]
 
 

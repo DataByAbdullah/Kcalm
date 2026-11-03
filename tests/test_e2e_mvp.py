@@ -179,10 +179,13 @@ def create_extra_lunch_recipes(db, token: str, track_recipe) -> None:
 
 
 def test_mvp_backend_user_journey(mvp_db, monkeypatch) -> None:
+    from tests.admin_helpers import promote_admin
+
     db, track_email, track_recipe, track_fdc_id = mvp_db
     setup_seed_data(db)
     email = track_email(unique_email("mvp-e2e"))
     token = register_and_login(email)
+    promote_admin(token)
 
     create_profile(token)
     profile_update = api_patch(

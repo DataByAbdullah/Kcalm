@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     full_name: str | None
     membership_tier: MembershipTier
     is_active: bool
+    is_admin: bool
 
     model_config = ConfigDict(from_attributes=True)
 

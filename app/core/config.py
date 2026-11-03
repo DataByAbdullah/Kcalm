@@ -1,6 +1,10 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DEFAULT_JWT_SECRET = "change-this-development-secret-at-least-32-bytes"
 
 
 class Settings(BaseSettings):
@@ -8,12 +12,27 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:5433/kcalm"
-    jwt_secret: str = "change-this-development-secret-at-least-32-bytes"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     password_reset_token_expire_minutes: int = 30
     frontend_password_reset_url: str = "http://localhost:3000/reset-password"
+
+    rate_limit_register_requests: int = Field(default=5, ge=1)
+    rate_limit_register_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_login_requests: int = Field(default=10, ge=1)
+    rate_limit_login_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_forgot_password_requests: int = Field(default=5, ge=1)
+    rate_limit_forgot_password_window_seconds: int = Field(default=300, ge=1)
+    rate_limit_ai_requests: int = Field(default=30, ge=1)
+    rate_limit_ai_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_usda_import_requests: int = Field(default=20, ge=1)
+    rate_limit_usda_import_window_seconds: int = Field(default=60, ge=1)
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() in {"production", "prod"}
 
     smtp_host: str = ""
     smtp_port: int = 587
