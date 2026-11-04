@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     app_name: str = "Kcalm API"
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
+    cors_origins: list[str] = Field(default_factory=lambda: [
+        "https://kcalm-app.vercel.app",
+        "http://localhost:3000",
+    ])
     database_url: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:5433/kcalm"
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
@@ -51,6 +55,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @field_validator("cors_origins")
+    @classmethod
+    def require_explicit_cors_origins(cls, origins: list[str]) -> list[str]:
+        if "*" in origins:
+            raise ValueError("CORS origins must be explicitly listed; wildcard origins are forbidden.")
+        return origins
 
 
 @lru_cache
