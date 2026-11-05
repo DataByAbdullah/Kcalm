@@ -31,6 +31,9 @@ SCALAR_PROFILE_FIELDS = {
     "target_rate",
     "max_cooking_minutes",
     "meals_per_day",
+    "usual_wake_time",
+    "usual_sleep_time",
+    "timezone",
 }
 
 LIST_RELATIONSHIPS = {
@@ -90,6 +93,9 @@ def profile_to_response(user: User) -> UserProfileResponse:
         target_rate=profile.target_rate,
         max_cooking_minutes=profile.max_cooking_minutes,
         meals_per_day=profile.meals_per_day,
+        usual_wake_time=profile.usual_wake_time,
+        usual_sleep_time=profile.usual_sleep_time,
+        timezone=profile.timezone,
         allergies=sorted(item.name for item in user.allergies),
         dietary_restrictions=sorted(item.name for item in user.dietary_restrictions),
         preferred_foods=sorted(item.name for item in user.preferred_foods),
@@ -148,6 +154,10 @@ def update_profile(
         raise _profile_not_found_error()
 
     fields_set = payload.model_fields_set
+    wake_time = payload.usual_wake_time if "usual_wake_time" in fields_set else loaded_user.profile.usual_wake_time
+    sleep_time = payload.usual_sleep_time if "usual_sleep_time" in fields_set else loaded_user.profile.usual_sleep_time
+    if wake_time == sleep_time:
+        raise APIErrorException(422, "INVALID_PROFILE_DATA", "Wake and sleep times must be different.")
     try:
         for field_name in SCALAR_PROFILE_FIELDS.intersection(fields_set):
             setattr(loaded_user.profile, field_name, getattr(payload, field_name))

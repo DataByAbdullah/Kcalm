@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import APIErrorException
@@ -22,6 +24,7 @@ from app.nutrition.micronutrients import (
 from app.nutrition.targets import calculate_nutrition_targets
 from app.schemas.meal_plan import DailySolverPreviewRequest
 from app.services.recipe_candidate_service import get_recipe_candidates
+from app.services.meal_schedule_service import schedule_meal_times
 from app.services.user_profile_service import get_profile
 
 
@@ -31,8 +34,8 @@ def solve_daily_plan_preview(
     payload: DailySolverPreviewRequest,
     target_override: SolverNutritionTargets | None = None,
 ) -> DailyPlanSolverResult:
+    profile = get_profile(db=db, user=user)
     if target_override is None:
-        profile = get_profile(db=db, user=user)
         targets = build_solver_targets_from_profile(profile)
     else:
         targets = target_override
@@ -53,10 +56,10 @@ def solve_daily_plan_preview(
     meal_slots = [
         MealSlot(meal_type=slot.meal_type, required=slot.required)
         for slot in payload.meal_slots
-    ] if payload.meal_slots is not None else default_meal_slots()
+    ] if payload.meal_slots is not None else default_meal_slots(profile.meals_per_day)
 
     try:
-        return solve_daily_plan(
+        result = solve_daily_plan(
             DailyPlanSolverInput(
                 candidates=candidate_result.candidates,
                 targets=targets,
@@ -70,6 +73,16 @@ def solve_daily_plan_preview(
             code="MEAL_SOLVER_INVALID_INPUT",
             message=str(exc),
         ) from exc
+
+    if not result.meals:
+        return result
+    scheduled_times = schedule_meal_times(
+        profile.usual_wake_time, profile.usual_sleep_time, len(result.meals)
+    )
+    return replace(result, meals=[
+        replace(meal, scheduled_time=scheduled_time)
+        for meal, scheduled_time in zip(result.meals, scheduled_times, strict=True)
+    ])
 
 
 def build_solver_targets_from_profile(profile) -> SolverNutritionTargets:

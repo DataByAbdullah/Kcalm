@@ -185,6 +185,7 @@ def solver_result_to_response(
                 recipe_id=meal.recipe_id,
                 recipe_name=meal.recipe_name,
                 serving_amount=meal.serving_amount,
+                scheduled_time=meal.scheduled_time,
                 nutrition=meal.nutrition,
             )
             for meal in result.meals
@@ -320,6 +321,7 @@ def plan_to_response(plan: MealPlan) -> MealPlanResponse:
                 recipe_name=item.recipe_name_snapshot,
                 servings=item.servings,
                 position=item.position,
+                scheduled_time=item.scheduled_time,
                 nutrition={
                     nutrient.nutrient_code: nutrient.amount
                     for nutrient in item.nutrients

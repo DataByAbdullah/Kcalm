@@ -498,6 +498,8 @@ def test_preview_service_uses_candidate_filtering(monkeypatch) -> None:
     calls = {}
 
     def fake_get_profile(db, user):
+        from datetime import time
+
         return SimpleNamespace(
             age=29,
             sex="male",
@@ -506,6 +508,9 @@ def test_preview_service_uses_candidate_filtering(monkeypatch) -> None:
             activity_level="moderate",
             goal="fat_loss",
             target_rate=0.5,
+            meals_per_day=4,
+            usual_wake_time=time(7),
+            usual_sleep_time=time(23),
         )
 
     def fake_get_recipe_candidates(**kwargs):
@@ -520,7 +525,7 @@ def test_preview_service_uses_candidate_filtering(monkeypatch) -> None:
             filter_order=[],
         )
 
-    sentinel = object()
+    sentinel = SimpleNamespace(meals=[])
     monkeypatch.setattr(meal_solver_service, "get_profile", fake_get_profile)
     monkeypatch.setattr(meal_solver_service, "get_recipe_candidates", fake_get_recipe_candidates)
     monkeypatch.setattr(meal_solver_service, "solve_daily_plan", lambda solver_input: sentinel)

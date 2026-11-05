@@ -1,5 +1,40 @@
 # Kcalm Planned REST API
 
+## Profile Meal Schedule (Batch 1)
+
+Profile create/update/read now support `usual_wake_time`, `usual_sleep_time` (local
+`HH:MM[:SS]` strings without UTC offsets) and an IANA `timezone`. Create defaults are
+`07:00`, `23:00`, `UTC`; provided values are persisted. PATCH preserves omitted values.
+Null schedule values, invalid timezones, and identical wake/sleep times return
+`422 INVALID_PROFILE_DATA`, including when a one-field update matches the saved other time.
+`meals_per_day` is now 2–5 inclusive. The additive migration `20261105_0022`, following
+`20261103_0021`, backfills existing schedules and clamps old meal counts to that range.
+
+`UserProfileResponse.weight_direction` is derived from current and target weight:
+`lose_weight`, `gain_weight`, `maintain_weight`, or null without a target. The nutrition
+`goal` is independent and is never rewritten by this calculation.
+
+When `meal_slots` is omitted, daily/weekly generation uses these required slots:
+
+| Meals | Ordered meal types |
+| --- | --- |
+| 2 | breakfast, dinner |
+| 3 | breakfast, lunch, dinner |
+| 4 | breakfast, lunch, pre_workout, dinner |
+| 5 | breakfast, lunch, snack, pre_workout, dinner |
+
+Explicit slots retain their supplied order and required/optional flags. Preview selected
+meals and saved daily/weekly meal items add nullable `scheduled_time`, a local SQL Time
+snapshot. New plans schedule the first slot one hour after waking and the last two hours
+before sleep, spacing slots evenly through the awake cycle. Wake 11:00/sleep 03:00 with
+four slots gives `12:00:00`, `16:20:00`, `20:40:00`, `01:00:00`. Use item position to
+preserve cycle order across midnight. No server UTC clock determines these meal times.
+For awake windows of three hours or less, meals are distributed inside the window because
+both buffers cannot fit. A single selected meal uses the first-meal time. When optional
+slots are omitted, the selected meals are spaced evenly in their requested order.
+Old plans return null rather than invented
+times; profile edits and recipe swaps do not recompute existing snapshots.
+
 ## Implemented Production Hardening
 
 `UserResponse`, including registration and `/auth/me`, adds `is_admin`. Registration
@@ -1350,7 +1385,7 @@ The solver does not query recipes directly, does not call USDA, does not call Op
 
 Request fields:
 
-- `meal_slots`: optional list of slot objects. When omitted, the default is required breakfast, lunch, dinner, and optional snack.
+- `meal_slots`: optional list of slot objects. When omitted, the saved profile's 2–5 meal count determines the required slots listed in the Batch 1 contract above. Explicit slots override that mapping.
 - `meal_slots[].meal_type`: `breakfast`, `lunch`, `pre_workout`, `dinner`, or `snack`.
 - `meal_slots[].required`: boolean. Required slots must receive exactly one recipe. Optional slots receive zero or one recipe.
 - `max_total_time_minutes`: optional candidate-filter override.

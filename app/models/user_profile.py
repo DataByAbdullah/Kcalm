@@ -1,6 +1,7 @@
+from datetime import time
 from uuid import UUID
 
-from sqlalchemy import Enum, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Enum, Float, ForeignKey, Integer, String, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import ActivityLevel, Goal, Sex
@@ -13,6 +14,10 @@ def enum_values(enum_class):
 
 class UserProfile(TimestampedUUIDBase):
     __tablename__ = "user_profiles"
+    __table_args__ = (
+        CheckConstraint("meals_per_day between 2 and 5", name="ck_user_profiles_meals_per_day_range"),
+        CheckConstraint("usual_wake_time <> usual_sleep_time", name="ck_user_profiles_wake_sleep_different"),
+    )
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -42,6 +47,9 @@ class UserProfile(TimestampedUUIDBase):
     target_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_cooking_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     meals_per_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    usual_wake_time: Mapped[time] = mapped_column(Time, nullable=False, default=time(7))
+    usual_sleep_time: Mapped[time] = mapped_column(Time, nullable=False, default=time(23))
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
 
     user = relationship("User", back_populates="profile")
 

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import time
 from enum import StrEnum
 from time import perf_counter
 from uuid import UUID
@@ -87,6 +88,7 @@ class SelectedMeal:
     recipe_name: str
     serving_amount: float
     nutrition: dict[str, float]
+    scheduled_time: time | None = None
 
 
 @dataclass(frozen=True)
@@ -146,7 +148,19 @@ class CandidateOption:
     nutrition_scaled: dict[str, int]
 
 
-def default_meal_slots() -> list[MealSlot]:
+def default_meal_slots(meals_per_day: int | None = None) -> list[MealSlot]:
+    if meals_per_day is not None:
+        meal_types = {
+            2: ("breakfast", "dinner"),
+            3: ("breakfast", "lunch", "dinner"),
+            4: ("breakfast", "lunch", "pre_workout", "dinner"),
+            5: ("breakfast", "lunch", "snack", "pre_workout", "dinner"),
+        }.get(meals_per_day)
+        if meal_types is None:
+            raise MealSolverInputError("meals_per_day must be between 2 and 5.")
+        return [MealSlot(meal_type, required=True) for meal_type in meal_types]
+    # Preserve the low-level solver helper's legacy behavior for existing callers.
+    # Profile-backed generation always passes its explicit meal count above.
     return [
         MealSlot("breakfast", required=True),
         MealSlot("lunch", required=True),

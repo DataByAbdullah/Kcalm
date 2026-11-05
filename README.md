@@ -1,8 +1,17 @@
 # Kcalm Backend
 
+## Profile Meal Schedule (Batch 1)
+
+Current head: `20261105_0022`, following `20261103_0021`. Apply `alembic upgrade head`
+before starting the API. Profiles support local wake/sleep times and an IANA timezone,
+2–5 meals per day, and derived weight direction independent of nutrition goal. Automatic
+slots follow the profile; explicit slots retain precedence. Preview and saved daily/weekly
+meal items expose `scheduled_time`, with null retained for old plans. See the
+[Batch 1 API contract](docs/API_SPEC.md#profile-meal-schedule-batch-1) for exact behavior.
+
 ## Production Hardening
 
-Current Alembic head: `20261103_0021`, following `20261028_0020`. Apply migrations
+The production-hardening migration is `20261103_0021`, following `20261028_0020`. Apply migrations
 before starting API workers. Recipe creation/update/deletion and USDA import require
 an administrator; users register with `is_admin=false` and `/auth/me` exposes the role.
 Administrators are promoted through trusted database operations, never public payloads.

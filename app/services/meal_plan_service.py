@@ -197,6 +197,7 @@ def persist_meal_plan_items(
             recipe_name_snapshot=meal.recipe_name,
             servings=meal.serving_amount,
             position=position,
+            scheduled_time=meal.scheduled_time,
         )
         db.add(item)
         db.flush()

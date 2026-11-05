@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
@@ -46,6 +46,7 @@ class SelectedMealResponse(BaseModel):
     recipe_name: str
     serving_amount: float
     nutrition: dict[str, float]
+    scheduled_time: time | None = None
 
 
 class SolverMicronutrientTargetResponse(BaseModel):
@@ -130,6 +131,7 @@ class PersistedMealPlanItemResponse(BaseModel):
     recipe_name: str
     servings: float
     position: int
+    scheduled_time: time | None = None
     nutrition: dict[str, float]
 
 

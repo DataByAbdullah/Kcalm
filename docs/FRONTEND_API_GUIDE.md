@@ -5,6 +5,30 @@ All URLs below are relative to `http://127.0.0.1:8000/api/v1`. Authenticated rou
 JSON requests use `Content-Type: application/json`.
 Errors retain `{"error":{"code":"...","message":"...","details":{}}}`.
 
+## Profile Sleep/Wake and Meal Timeline
+
+POST/PATCH `/users/profile` accepts `usual_wake_time`, `usual_sleep_time` and `timezone`.
+Example: `{"usual_wake_time":"11:00","usual_sleep_time":"03:00","timezone":"Asia/Karachi"}`.
+Time values are local wall-clock times without offsets; the timezone must be a valid
+`zoneinfo.ZoneInfo` identifier. Create defaults remain `07:00`, `23:00`, `UTC` for older
+clients. PATCH preserves omitted values and rejects explicit nulls or equal wake/sleep
+times. `meals_per_day` accepts only 2–5. Invalid profile values return 422.
+
+Profile responses add `weight_direction`: `lose_weight`, `gain_weight`, `maintain_weight`,
+or null when no target weight is set. A 95 kg user targeting 90 kg returns `lose_weight`
+regardless of the separate nutrition `goal`; clients must not rewrite that goal.
+
+Omitting `meal_slots` uses the profile's required mapping: 2 = breakfast/dinner;
+3 = breakfast/lunch/dinner; 4 adds pre_workout before dinner; 5 inserts snack between
+lunch and pre_workout. Explicit slots override it. Preview meals and saved daily/weekly
+items add `scheduled_time`. Display this local snapshot in item position order using
+the profile timezone, rather than sorting clock strings or converting them as UTC.
+For wake 11:00/sleep 03:00, four slots are `12:00`, `16:20`, `20:40`, `01:00` in that order;
+the final meal belongs to the following calendar day of the same wake cycle.
+Legacy items can have null times; render those as unscheduled. Existing snapshots remain
+unchanged after profile edits or swaps. See [API Spec](API_SPEC.md#profile-meal-schedule-batch-1)
+for short awake-window and optional-slot scheduling rules.
+
 ## Authentication and Catalog Authorization
 
 Registration and `/auth/me` return `is_admin`; public payloads cannot assign this role.

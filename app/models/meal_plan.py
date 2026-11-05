@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from uuid import UUID
 
 from sqlalchemy import (
@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Time,
     UniqueConstraint,
     text,
 )
@@ -168,6 +169,7 @@ class MealPlanItem(TimestampedUUIDBase):
     recipe_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
     servings: Mapped[float] = mapped_column(Float, nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_time: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     meal_plan = relationship("MealPlan", back_populates="items")
     nutrients = relationship(

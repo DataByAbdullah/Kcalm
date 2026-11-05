@@ -655,7 +655,10 @@ Audit outcomes:
 `pre_workout` is a first-class recipe tag and validated API/persisted meal type; `snack`
 is separate. The existing generic solver slot assignment, snapshot persistence, weekly
 flows, and swap orchestration use explicit slot requests without a new solver or service.
-Legacy omitted-slot defaults remain breakfast/lunch/dinner plus optional snack.
+Omitted slots now follow the saved profile's required 2–5 meal mapping. Explicit slots
+retain their supplied order and required/optional flags. A reusable local-time scheduling
+helper attaches preview times from the saved wake/sleep cycle, and new daily/weekly items
+persist those values. Legacy snapshots remain nullable; reads never recalculate them.
 
 The repeatable development seed now has 12 modeled foods and ten recipes for each of
 the four frontend slots (plus the original snack). Recipe nutrition is still calculated

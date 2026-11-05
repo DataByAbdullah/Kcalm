@@ -10,9 +10,14 @@ Nutrition data must always preserve source attribution. Historical plans must re
 
 ### Progress and Account Extension Schema
 
-The current head is `20261103_0021`, following daily metrics `20261028_0020`, the P0
+The current head is `20261105_0022`, following production hardening `20261103_0021`,
+daily metrics `20261028_0020`, the P0
 `20261026_0019` meal-type migration and the original six progress/account migrations
-after `fcdf61504ece`. The latest migration adds the admin flag and rate-limit buckets.
+after `fcdf61504ece`. Batch 1 adds non-null profile `usual_wake_time`/`usual_sleep_time`
+(SQL Time) and `timezone` (String(64)), backfilled with `07:00`, `23:00`, `UTC`. Old
+meal counts are clamped before adding the 2–5 check constraint; wake/sleep must differ.
+`meal_plan_items.scheduled_time` is nullable SQL Time so legacy snapshots remain null.
+`weight_direction` is derived in profile responses and has no database column.
 Existing migrations and unrelated email/profile indexes and constraints are untouched.
 
 | Table | Fields and Relationships |
