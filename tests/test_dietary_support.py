@@ -15,7 +15,7 @@ from tests.admin_helpers import promote_admin
 
 def recipe_body(food_id, tags):
     return {"name": f"Diet test {uuid4().hex}", "servings": 1, "prep_time_minutes": 5, "cook_time_minutes": 0,
-            "difficulty": "easy", "tags": tags, "equipment": [], "ingredients": [{"food_id": food_id, "quantity_grams": 100}], "steps": []}
+            "difficulty": "easy", "tags": tags, "equipment": [], "ingredients": [{"food_id": food_id, "quantity_grams": 300}], "steps": []}
 
 
 def test_diet_tags_and_reviewed_allergens_flow_into_candidates_and_solver(tracking_user):
@@ -25,9 +25,10 @@ def test_diet_tags_and_reviewed_allergens_flow_into_candidates_and_solver(tracki
     food = Food(name=f"Reviewed test food {uuid4().hex}", source=FoodSource.INTERNAL, category="test")
     db.add(food)
     db.flush()
+    # The one-meal fixture must be able to cover daily calories within the 2x cap.
     for code, definition in RECIPE_NUTRIENT_DEFINITION_BY_CODE.items():
         db.add(FoodNutrient(food_id=food.id, nutrient_code=code, nutrient_name=definition.name,
-                           amount={"calories": 100, "protein": 10, "carbohydrates": 10, "fat": 2}.get(code, 1), unit=definition.unit))
+                           amount={"calories": 400, "protein": 30, "carbohydrates": 50, "fat": 10}.get(code, 1), unit=definition.unit))
     db.commit()
     recipe_ids = []
     try:

@@ -178,7 +178,9 @@ def recipe_payload(
         "ingredients": [
             {
                 "food_id": food_id(db, source_food_id),
-                "quantity_grams": 100,
+                # Meal-sized fixtures leave enough energy for eligible swaps
+                # under the daily calorie guard, even with locked other meals.
+                "quantity_grams": 300,
                 "position": index,
             }
             for index, source_food_id in enumerate(food_source_ids, start=1)

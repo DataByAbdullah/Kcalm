@@ -302,13 +302,13 @@ def test_optional_snack_is_selected_when_it_improves_nutrition() -> None:
         candidate("Breakfast", ["breakfast"], nutrient_amounts(calories=100, protein=10, carbohydrates=10, fat=5, fiber=2, calcium=100)),
         candidate("Lunch", ["lunch"], nutrient_amounts(calories=200, protein=20, carbohydrates=20, fat=5, fiber=3, calcium=200)),
         candidate("Dinner", ["dinner"], nutrient_amounts(calories=300, protein=30, carbohydrates=30, fat=5, fiber=4, calcium=300)),
-        candidate("Snack", ["snack"], nutrient_amounts(calories=100, protein=10, carbohydrates=10, fat=5, fiber=1, calcium=100)),
+        candidate("Snack", ["snack"], nutrient_amounts(calories=100, protein=10, carbohydrates=10, fat=5, fiber=20, calcium=100)),
     ]
 
     result = solve_daily_plan(
         DailyPlanSolverInput(
             candidates=candidates,
-            targets=targets(calories=700, protein=70, carbohydrates=70, fat=20, fiber=10, calcium=700),
+            targets=targets(calories=700, protein=70, carbohydrates=70, fat=20, fiber=29, calcium=700),
             meal_slots=default_meal_slots(),
         )
     )
@@ -404,9 +404,11 @@ def test_tolerance_and_micronutrient_coverage_metadata() -> None:
 
     deviations = {item.nutrient_code: item for item in result.deviations}
     coverage = {item.nutrient_code: item for item in result.micronutrient_coverage}
-    assert deviations["calories"].status == ToleranceStatus.BELOW
-    assert deviations["protein"].status == ToleranceStatus.WITHIN
-    assert coverage["calcium"].coverage_percent == pytest.approx(50.0)
+    assert deviations["calories"].status == ToleranceStatus.WITHIN
+    assert 900 <= result.daily_totals["calories"] <= 1100
+    assert deviations["protein"].actual == result.daily_totals["protein"]
+    assert deviations["protein"].status == ToleranceStatus.ABOVE
+    assert coverage["calcium"].coverage_percent == pytest.approx(result.daily_totals["calcium"] / 10)
     assert coverage["calcium"].met is False
     assert result.within_preferred_tolerance is False
 

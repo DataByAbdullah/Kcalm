@@ -186,7 +186,10 @@ def test_reviewed_metadata_is_enforced_by_candidates_and_solver(p0_user, codes, 
             assert not preview.json()["candidates"] and solve.json()["status"] == "infeasible"
         else:
             assert [item["recipe_id"] for item in preview.json()["candidates"]] == [str(chosen.id)]
-            assert solve.json()["meals"][0]["recipe_id"] == str(chosen.id)
+            # Eligible for this slot, but a single pre-workout recipe cannot
+            # supply a full day's calories within the allowed serving sizes.
+            assert solve.json()["status"] == "infeasible"
+            assert solve.json()["infeasibility_reasons"] == ["calorie_target_outside_allowed_tolerance"]
     finally:
         banana.allergen_codes, banana.allergen_reference = original_codes, original_reference
         db.commit()

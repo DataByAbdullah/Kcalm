@@ -25,13 +25,14 @@ The MVP solver path is implemented and validated for daily previews, persisted d
 Current implementation choices:
 
 - Candidate order is stable before solving.
-- OR-Tools CP-SAT uses fixed `1.0` serving portions for MVP.
+- OR-Tools CP-SAT chooses discrete `0.75`, `1.0`, `1.25`, `1.5`, `1.75`, or `2.0` serving portions.
 - The solver uses a fixed seed, single worker, and request-bounded timeout.
 - Meal slots, recipe reuse, explicit exclusions, candidate eligibility, and locked-meal nutrition are enforced structurally.
 - Calories, macros, micronutrient shortfall, and applicable upper-limit excess are optimized as objective penalties and reported with tolerance metadata.
+- Calories within +/- 5% take priority over the existing weighted nutrition objective; +/- 10% is the hard feasibility limit.
 - Persisted plans and swaps store immutable nutrition and target snapshots after a feasible or optimal result.
 
-Deferred solver work remains: expanded portion options, additional soft-objective scoring, solver diagnostics endpoints, and broader production regression fixtures.
+Deferred solver work remains: additional soft-objective scoring, solver diagnostics endpoints, and broader production regression fixtures.
 
 ## Inputs
 
@@ -94,8 +95,8 @@ Hard constraints cannot be violated.
 
 ### Nutrition
 
-- Future persisted plan validation should enforce or reject plans according to configured nutrition policy.
-- The current non-persisted solver preview treats calories, macros, micronutrient shortfall, and applicable upper-limit excess as objective penalties and reports compliance metadata.
+- Previews, persisted plans, weekly children, and swaps require full-day calories within +/- 10% of the target, including locked nutrition during swaps.
+- Macros, micronutrient shortfall, and applicable upper-limit excess remain objective penalties with compliance metadata.
 - Total calories and macros report against the planned +/- 5% preferred band.
 - Tracked micronutrients report coverage against current RDA/AI targets.
 - Nutrient upper limits are reported and penalized only where current metadata supports applying them to food-derived totals.
@@ -172,18 +173,17 @@ Use Google OR-Tools CP-SAT for discrete recipe selection and portion choices.
 
 Current solver preview approach:
 
-- Decision variable for candidate recipe selection per meal slot.
+- One binary decision variable for each candidate recipe and serving option per meal slot.
 - Exactly one selected candidate per required meal slot.
 - Zero or one selected candidate per optional meal slot.
-- Fixed `1.0` recipe serving per selected meal.
-- Same recipe cannot fill multiple slots in one day.
+- Serving multipliers are `0.75`, `1.0`, `1.25`, `1.5`, `1.75`, and `2.0`.
+- The same recipe ID cannot fill multiple slots in one day, even through different serving variants.
 - Optional locked nutrition can be supplied as base daily totals for swap solving.
 - Locked meal item identities are orchestrated by the swap service, while the solver optimizes open slots against final full-day totals.
 
-Future portion expansion:
-
-- Add discrete portion multipliers such as `0.5`, `0.75`, `1.0`, `1.25`, and `1.5`.
-- Keep arbitrary floating serving amounts out of the solver.
+No arbitrary floating serving amounts are used inside CP-SAT. Preview `serving_amount`
+and persisted item `servings` report the selected multiplier. Ingredient snapshots
+continue multiplying recipe ingredient quantities by that selected amount.
 
 ### Nutrition Scaling
 
@@ -191,13 +191,17 @@ Recipe nutrition should be precomputed per allowed portion option to keep the CP
 
 Examples:
 
-- 0.5 serving.
 - 0.75 serving.
 - 1.0 serving.
 - 1.25 servings.
 - 1.5 servings.
+- 1.75 servings.
+- 2.0 servings.
 
-Nutrients can be scaled to integer units for solver use, such as tenths of grams or whole milligrams, then converted back for display.
+Each per-serving nutrient amount is multiplied using decimal arithmetic, then rounded
+half up to thousandths for integer solver coefficients. This includes complete,
+known nutrients without an optimization target. Selected-meal nutrition and daily
+totals use these same scaled values; totals sum the selected snapshots.
 
 ### Constraints
 
@@ -206,14 +210,20 @@ The solver adds constraints for:
 - Meal slot coverage.
 - Optional slot maximums.
 - Same-day recipe reuse.
-- Fixed serving amount.
+- Allowed discrete serving options.
+- Full-day calorie bounds of +/- 10%.
 - Candidate eligibility inherited from recipe candidate filtering.
 - Time, equipment, dietary restriction, disliked food, and explicit exclusions through candidate filtering.
 - Locked meal nutrition through `DailyPlanSolverInput.locked_nutrition`.
 - Duplicate limits.
 - Explicit swap exclusions.
 
-For the current preview and swap flows, calorie, macro, and micronutrient precision is optimized through objective penalties and reported with compliance metadata rather than enforced as hard feasibility bands. This lets the API return the closest structurally valid day when exact +/- 5% nutrition precision is impossible.
+The +/- 5% calorie band is preferred before optimizing the existing weighted nutrition
+objective, using an integer penalty bounded above all other objective terms. If that
+band is unattainable, the solver may use the +/- 10% band. A result outside the allowed
+band is `infeasible` with `calorie_target_outside_allowed_tolerance`, and cannot be
+persisted. Insufficient or excessive energy in the eligible catalog is not relaxed.
+Macro and micronutrient precision continues to use objective penalties and metadata.
 
 ### Objective
 

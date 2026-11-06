@@ -4,6 +4,7 @@ from uuid import UUID
 import pytest
 
 from app.models.meal_plan import MealPlan, MealPlanItem
+from app.meal_planning.solver import SERVING_AMOUNTS, SolverNutritionTargets
 from app.services.recipe_seed_service import seed_development_recipes
 from tests.test_auth import auth_db
 from tests.test_meal_plan_persistence import create_profile, register_and_login, unique_email
@@ -21,9 +22,17 @@ def seeded_schedule_catalog():
 def plan_user(auth_db, seeded_schedule_catalog):
     db, track = auth_db
     token = register_and_login(track(unique_email("scheduled-plan")))
-    create_profile(token, meals_per_day=4, usual_wake_time="11:00", usual_sleep_time="03:00",
+    # This target is attainable with two meals and the catalog's 2x serving cap.
+    create_profile(token, meals_per_day=4, activity_level="sedentary", usual_wake_time="11:00", usual_sleep_time="03:00",
                    timezone="Asia/Karachi", equipment=["stovetop", "oven", "blender", "air_fryer", "microwave", "slow_cooker"])
     return db, token
+
+
+def assert_portions_and_calorie_tolerance(plan):
+    assert all(meal["servings"] in SERVING_AMOUNTS for meal in plan["meals"])
+    assert 0.9 * plan["targets"]["calories"] <= plan["daily_totals"]["calories"] <= 1.1 * plan["targets"]["calories"]
+    for code, amount in plan["daily_totals"].items():
+        assert amount == pytest.approx(sum(meal["nutrition"].get(code, 0) for meal in plan["meals"]))
 
 
 @pytest.mark.parametrize("count,types,times", [
@@ -44,6 +53,7 @@ def test_automatic_plan_slots_and_schedule_persist_and_round_trip(plan_user, cou
     created = request("POST", "/meal-plans", token, {"plan_date": "2026-11-02"})
     assert created.status_code == 201, created.text
     plan = created.json()
+    assert_portions_and_calorie_tolerance(plan)
     assert [meal["meal_type"] for meal in plan["meals"]] == types
     assert [meal["scheduled_time"] for meal in plan["meals"]] == times
     for meal, expected_time in zip(plan["meals"], times, strict=True):
@@ -92,8 +102,13 @@ def test_existing_plan_schedule_is_a_snapshot_and_swap_retains_time(plan_user):
     (["dinner"], ["12:00:00"]),
     (["lunch", "dinner"], ["12:00:00", "01:00:00"]),
 ])
-def test_omitted_optional_slots_do_not_delay_first_actual_meal(plan_user, required_types, expected_times):
+def test_omitted_optional_slots_do_not_delay_first_actual_meal(plan_user, required_types, expected_times, monkeypatch):
     from app.models.recipe import Recipe
+    from app.services import meal_solver_service
+
+    # Keep the single-meal scheduling case nutritionally attainable as well.
+    monkeypatch.setattr(meal_solver_service, "build_solver_targets_from_profile",
+                        lambda profile: SolverNutritionTargets(800, 60, 80, 25, []))
 
     db, token = plan_user
     snack_ids = [str(recipe.id) for recipe in db.query(Recipe).all()
@@ -128,6 +143,7 @@ def test_weekly_children_use_profile_slots_and_schedule(plan_user):
     week = response.json()
     assert len(week["daily_plans"]) == 7
     for day in week["daily_plans"]:
+        assert_portions_and_calorie_tolerance(day)
         assert [meal["meal_type"] for meal in day["meals"]] == ["breakfast", "lunch", "pre_workout", "dinner"]
         assert [meal["scheduled_time"] for meal in day["meals"]] == ["12:00:00", "16:20:00", "20:40:00", "01:00:00"]
         stored = db.get(MealPlan, UUID(day["meal_plan_id"]))

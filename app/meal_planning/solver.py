@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import time
+from decimal import Decimal
 from enum import StrEnum
 from time import perf_counter
 from uuid import UUID
@@ -19,6 +20,8 @@ MACRO_CODES = (PROTEIN_CODE, CARBOHYDRATES_CODE, FAT_CODE)
 CORE_NUTRIENT_CODES = (CALORIES_CODE, *MACRO_CODES)
 DEFAULT_SOLVER_TIMEOUT_SECONDS = 3.0
 DEFAULT_TOLERANCE = 0.05
+ALLOWED_CALORIE_TOLERANCE = 0.10
+SERVING_AMOUNTS = (0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 UPPER_LIMIT_APPLICABLE_TYPES = {"UL", "CDRR"}
 
 OBJECTIVE_NORMALIZATION_FACTOR = 1_000_000
@@ -145,6 +148,7 @@ class CandidateOption:
     meal_type: str
     candidate_index: int
     candidate: RecipeCandidate
+    serving_amount: float
     nutrition_scaled: dict[str, int]
 
 
@@ -193,8 +197,10 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
 
     model = cp_model.CpModel()
     variables = [
-        model.NewBoolVar(f"slot_{option.slot_index}_candidate_{option.candidate_index}")
-        for option in options
+        model.NewBoolVar(
+            f"slot_{option.slot_index}_candidate_{option.candidate_index}_option_{index}"
+        )
+        for index, option in enumerate(options)
     ]
 
     for slot_index, slot in enumerate(solver_input.meal_slots):
@@ -210,12 +216,12 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         else:
             model.Add(sum(slot_variables) <= 1)
 
-    candidate_indexes = sorted({option.candidate_index for option in options})
-    for candidate_index in candidate_indexes:
+    recipe_ids = sorted({option.candidate.recipe_id for option in options})
+    for recipe_id in recipe_ids:
         candidate_variables = [
             variables[index]
             for index, option in enumerate(options)
-            if option.candidate_index == candidate_index
+            if option.candidate.recipe_id == recipe_id
         ]
         model.Add(sum(candidate_variables) <= 1)
 
@@ -231,8 +237,13 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         for code in required_codes
     }
 
+    calorie_lower, calorie_upper = scaled_tolerance_bounds(
+        solver_input.targets.calories, ALLOWED_CALORIE_TOLERANCE
+    )
+    model.AddLinearConstraint(totals[CALORIES_CODE], calorie_lower, calorie_upper)
+
     objective_terms = []
-    add_absolute_deviation_terms(
+    objective_upper_bound = add_absolute_deviation_terms(
         model=model,
         objective_terms=objective_terms,
         total=totals[CALORIES_CODE],
@@ -249,7 +260,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         ),
     )
     for code, amount in macro_targets_by_code(solver_input.targets).items():
-        add_absolute_deviation_terms(
+        objective_upper_bound += add_absolute_deviation_terms(
             model=model,
             objective_terms=objective_terms,
             total=totals[code],
@@ -275,13 +286,11 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
             f"{micronutrient.code}_shortfall",
         )
         model.Add(shortfall >= target_scaled - totals[micronutrient.code])
-        objective_terms.append(
-            shortfall
-            * objective_coefficient(
-                weight=MICRONUTRIENT_SHORTFALL_WEIGHT,
-                target=minimum_target,
-            )
+        coefficient = objective_coefficient(
+            weight=MICRONUTRIENT_SHORTFALL_WEIGHT, target=minimum_target
         )
+        objective_terms.append(shortfall * coefficient)
+        objective_upper_bound += max(target_scaled, 1) * coefficient
 
         if micronutrient_upper_limit_applicable(micronutrient):
             upper_scaled = scale_amount(micronutrient.upper_limit or 0)
@@ -296,18 +305,29 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
                 f"{micronutrient.code}_upper_excess",
             )
             model.Add(excess >= totals[micronutrient.code] - upper_scaled)
-            objective_terms.append(
-                excess
-                * objective_coefficient(
-                    weight=MICRONUTRIENT_UPPER_EXCESS_WEIGHT,
-                    target=micronutrient.upper_limit or 1,
-                )
+            coefficient = objective_coefficient(
+                weight=MICRONUTRIENT_UPPER_EXCESS_WEIGHT, target=micronutrient.upper_limit or 1
             )
+            objective_terms.append(excess * coefficient)
+            objective_upper_bound += max(max_total - upper_scaled, 0) * coefficient
 
     for index, variable in enumerate(variables):
         objective_terms.append(variable * (index + 1))
+        objective_upper_bound += index + 1
 
-    model.Minimize(sum(objective_terms))
+    preferred_lower, preferred_upper = scaled_tolerance_bounds(
+        solver_input.targets.calories, DEFAULT_TOLERANCE
+    )
+    outside_preferred = model.NewBoolVar("calories_outside_preferred_tolerance")
+    model.AddLinearConstraint(
+        totals[CALORIES_CODE], preferred_lower, preferred_upper
+    ).OnlyEnforceIf(outside_preferred.Not())
+    # Prefer the 5% calorie band before optimizing the existing nutrition terms.
+    # All bounds and coefficients remain integers; the 10% band is always hard.
+    objective_terms.append(outside_preferred * (objective_upper_bound + 1))
+
+    objective = sum(objective_terms)
+    model.Minimize(objective)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = solver_input.config.time_limit_seconds
     solver.parameters.num_search_workers = 1
@@ -319,7 +339,10 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
     if status is SolverStatus.INFEASIBLE:
         return infeasible_result(
             solver_input=solver_input,
-            reasons=["solver_no_structurally_valid_assignment"],
+            reasons=[
+                "calorie_target_outside_allowed_tolerance"
+                if raw_status == cp_model.INFEASIBLE else "solver_no_structurally_valid_assignment"
+            ],
             solve_time_seconds=solve_time_seconds,
         )
 
@@ -332,6 +355,12 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         required_codes=required_codes,
         locked_nutrition=solver_input.locked_nutrition,
     )
+    if not calorie_lower <= scale_amount(daily_totals[CALORIES_CODE]) <= calorie_upper:
+        return infeasible_result(
+            solver_input=solver_input,
+            reasons=["calorie_target_outside_allowed_tolerance"],
+            solve_time_seconds=solve_time_seconds,
+        )
     deviations = build_macro_deviations(
         daily_totals=daily_totals,
         targets=solver_input.targets,
@@ -356,7 +385,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         deviations=deviations,
         micronutrient_coverage=micronutrient_coverage,
         within_preferred_tolerance=within_preferred_tolerance,
-        objective_value=int(solver.ObjectiveValue()),
+        objective_value=solver.Value(objective),
         infeasibility_reasons=[],
         solve_time_seconds=solve_time_seconds,
         candidate_count=len(solver_input.candidates),
@@ -416,25 +445,27 @@ def build_candidate_options(
     options: list[CandidateOption] = []
     malformed_candidate_ids: set[UUID] = set()
     for candidate_index, candidate in enumerate(candidates):
-        nutrition_scaled = candidate_nutrition_scaled(
-            candidate=candidate,
-            required_codes=required_codes,
-        )
-        if nutrition_scaled is None:
+        variants = [
+            (serving_amount, candidate_nutrition_scaled(candidate, required_codes, serving_amount))
+            for serving_amount in SERVING_AMOUNTS
+        ]
+        if any(nutrition_scaled is None for _, nutrition_scaled in variants):
             malformed_candidate_ids.add(candidate.recipe_id)
             continue
 
         for slot_index, slot in enumerate(meal_slots):
             if slot.meal_type in candidate.meal_tags:
-                options.append(
-                    CandidateOption(
-                        slot_index=slot_index,
-                        meal_type=slot.meal_type,
-                        candidate_index=candidate_index,
-                        candidate=candidate,
-                        nutrition_scaled=nutrition_scaled,
+                for serving_amount, nutrition_scaled in variants:
+                    options.append(
+                        CandidateOption(
+                            slot_index=slot_index,
+                            meal_type=slot.meal_type,
+                            candidate_index=candidate_index,
+                            candidate=candidate,
+                            serving_amount=serving_amount,
+                            nutrition_scaled=nutrition_scaled,
+                        )
                     )
-                )
 
     return options, malformed_candidate_ids
 
@@ -442,7 +473,9 @@ def build_candidate_options(
 def candidate_nutrition_scaled(
     candidate: RecipeCandidate,
     required_codes: tuple[str, ...],
+    serving_amount: float = 1.0,
 ) -> dict[str, int] | None:
+    multiplier = Decimal(str(serving_amount))
     nutrients_by_code = {nutrient.code: nutrient for nutrient in candidate.per_serving_nutrition}
     nutrition_scaled: dict[str, int] = {}
     for code in required_codes:
@@ -452,13 +485,13 @@ def candidate_nutrition_scaled(
             return None
         if not nutrient.complete or nutrient.amount < 0 or nutrient.unit != definition.unit:
             return None
-        nutrition_scaled[code] = scale_amount(nutrient.amount)
+        nutrition_scaled[code] = scale_amount(Decimal(str(nutrient.amount)) * multiplier)
     # Carry known, non-target nutrients into snapshots without inventing solver targets.
     for code, nutrient in nutrients_by_code.items():
         definition = RECIPE_NUTRIENT_DEFINITION_BY_CODE.get(code)
         if (code not in nutrition_scaled and definition is not None and nutrient.complete
                 and nutrient.amount >= 0 and nutrient.unit == definition.unit):
-            nutrition_scaled[code] = scale_amount(nutrient.amount)
+            nutrition_scaled[code] = scale_amount(Decimal(str(nutrient.amount)) * multiplier)
     return nutrition_scaled
 
 
@@ -489,7 +522,30 @@ def structural_infeasibility_reasons(
             continue
         if not any(option.slot_index == slot_index for option in options):
             reasons.append(f"missing_meal_slot_candidate:{slot.meal_type}")
+    if not reasons and not required_slots_have_distinct_recipes(solver_input.meal_slots, options):
+        reasons.append("solver_no_structurally_valid_assignment")
     return reasons
+
+
+def required_slots_have_distinct_recipes(meal_slots: list[MealSlot], options: list[CandidateOption]) -> bool:
+    """Match required slots to recipes independently of serving size and calories."""
+    recipes_by_slot = {
+        index: {option.candidate.recipe_id for option in options if option.slot_index == index}
+        for index, slot in enumerate(meal_slots) if slot.required
+    }
+    matched_slots: dict[UUID, int] = {}
+
+    def match(slot_index: int, visited: set[UUID]) -> bool:
+        for recipe_id in sorted(recipes_by_slot[slot_index]):
+            if recipe_id in visited:
+                continue
+            visited.add(recipe_id)
+            if recipe_id not in matched_slots or match(matched_slots[recipe_id], visited):
+                matched_slots[recipe_id] = slot_index
+                return True
+        return False
+
+    return all(match(index, set()) for index in recipes_by_slot)
 
 
 def add_absolute_deviation_terms(
@@ -500,12 +556,13 @@ def add_absolute_deviation_terms(
     coefficient: int,
     name: str,
     max_total: int,
-) -> None:
+) -> int:
     upper_bound = max(max_total, target_scaled)
     positive = model.NewIntVar(0, upper_bound, f"{name}_positive_deviation")
     negative = model.NewIntVar(0, upper_bound, f"{name}_negative_deviation")
     model.Add(total - target_scaled == positive - negative)
     objective_terms.extend([positive * coefficient, negative * coefficient])
+    return 2 * upper_bound * coefficient
 
 
 def objective_coefficient(weight: int, target: float) -> int:
@@ -518,7 +575,14 @@ def max_scaled_total(
     nutrient_code: str,
     locked_total: int = 0,
 ) -> int:
-    return locked_total + sum(option.nutrition_scaled[nutrient_code] for option in options)
+    # Each slot can select at most one variant; summing all variants would inflate
+    # integer domains and objective bounds as the catalog grows.
+    slot_maxima: dict[int, int] = {}
+    for option in options:
+        slot_maxima[option.slot_index] = max(
+            slot_maxima.get(option.slot_index, 0), option.nutrition_scaled[nutrient_code]
+        )
+    return locked_total + sum(slot_maxima.values())
 
 
 def macro_targets_by_code(targets: SolverNutritionTargets) -> dict[str, float]:
@@ -556,7 +620,7 @@ def selected_meals_from_options(options: list[CandidateOption]) -> list[Selected
                 meal_type=option.meal_type,
                 recipe_id=option.candidate.recipe_id,
                 recipe_name=option.candidate.name,
-                serving_amount=1.0,
+                serving_amount=option.serving_amount,
                 nutrition={
                     code: unscale_amount(amount)
                     for code, amount in option.nutrition_scaled.items()
