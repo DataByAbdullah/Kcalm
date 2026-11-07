@@ -25,7 +25,7 @@ The MVP solver path is implemented and validated for daily previews, persisted d
 Current implementation choices:
 
 - Candidate order is stable before solving.
-- OR-Tools CP-SAT chooses discrete `0.75`, `1.0`, `1.25`, `1.5`, `1.75`, or `2.0` serving portions.
+- OR-Tools CP-SAT chooses discrete portions in `0.25` increments, starting at `0.75`, with a dynamic maximum capped at `8.0`.
 - The solver uses a fixed seed, single worker, and request-bounded timeout.
 - Meal slots, recipe reuse, explicit exclusions, candidate eligibility, and locked-meal nutrition are enforced structurally.
 - Calories, macros, micronutrient shortfall, and applicable upper-limit excess are optimized as objective penalties and reported with tolerance metadata.
@@ -176,7 +176,7 @@ Current solver preview approach:
 - One binary decision variable for each candidate recipe and serving option per meal slot.
 - Exactly one selected candidate per required meal slot.
 - Zero or one selected candidate per optional meal slot.
-- Serving multipliers are `0.75`, `1.0`, `1.25`, `1.5`, `1.75`, and `2.0`.
+- Base serving multipliers are `0.75`, `1.0`, `1.25`, `1.5`, `1.75`, and `2.0`; larger quarter-serving options are derived from the target and eligible recipe calories.
 - The same recipe ID cannot fill multiple slots in one day, even through different serving variants.
 - Optional locked nutrition can be supplied as base daily totals for swap solving.
 - Locked meal item identities are orchestrated by the swap service, while the solver optimizes open slots against final full-day totals.
@@ -184,6 +184,20 @@ Current solver preview approach:
 No arbitrary floating serving amounts are used inside CP-SAT. Preview `serving_amount`
 and persisted item `servings` report the selected multiplier. Ingredient snapshots
 continue multiplying recipe ingredient quantities by that selected amount.
+
+The nominal calorie share is the remaining daily calorie target divided by the
+required open meal count. During swaps, locked calories are subtracted first.
+Each candidate's per-serving calories convert this share into a serving multiplier.
+The range also covers that slot's full available calorie budget after reserving
+the minimum energy for the other required slots. This lets one meal compensate
+for a smaller meal without incorrectly declaring an otherwise valid day infeasible.
+The maximum rounds up to a `0.25` increment and retains all base options.
+
+`MAX_SERVING_AMOUNT = 8.0` caps every range at 30 options per candidate/slot. Seeded
+breakfasts contain 276.32–396 kcal and dinners 342.4–602.2 kcal per serving. Half
+of a 3719 kcal day is 1859.5 kcal, requiring 6.75 portions of the smallest breakfast;
+the ceiling therefore exceeds 5.0 to support smaller eligible recipes as well.
+Zero-calorie recipes retain only base options, and non-finite nutrition is excluded.
 
 ### Nutrition Scaling
 
@@ -197,6 +211,7 @@ Examples:
 - 1.5 servings.
 - 1.75 servings.
 - 2.0 servings.
+- Larger quarter-serving options as needed, up to 8.0 servings.
 
 Each per-serving nutrient amount is multiplied using decimal arithmetic, then rounded
 half up to thousandths for integer solver coefficients. This includes complete,

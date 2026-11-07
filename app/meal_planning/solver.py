@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from datetime import time
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from enum import StrEnum
 from time import perf_counter
 from uuid import UUID
 
 from ortools.sat.python import cp_model
 
-from app.meal_planning.scaling import scale_amount, scaled_tolerance_bounds, unscale_amount
+from app.meal_planning.scaling import NUTRITION_SCALE_FACTOR, scale_amount, scaled_tolerance_bounds, unscale_amount
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.services.recipe_candidate_service import RecipeCandidate
 
@@ -22,6 +22,10 @@ DEFAULT_SOLVER_TIMEOUT_SECONDS = 3.0
 DEFAULT_TOLERANCE = 0.05
 ALLOWED_CALORIE_TOLERANCE = 0.10
 SERVING_AMOUNTS = (0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+# The smallest seeded breakfast needs 6.75 servings for half of a 3719 kcal day.
+# Eight servings allow that catalog to support two meals while bounding options.
+MAX_SERVING_AMOUNT = 8.0
+SERVING_STEP = Decimal("0.25")
 UPPER_LIMIT_APPLICABLE_TYPES = {"UL", "CDRR"}
 
 OBJECTIVE_NORMALIZATION_FACTOR = 1_000_000
@@ -181,6 +185,8 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         candidates=solver_input.candidates,
         meal_slots=solver_input.meal_slots,
         required_codes=required_codes,
+        calorie_target=solver_input.targets.calories,
+        locked_calories=solver_input.locked_nutrition.get(CALORIES_CODE, 0),
     )
 
     structural_reasons = structural_infeasibility_reasons(
@@ -441,21 +447,40 @@ def build_candidate_options(
     candidates: list[RecipeCandidate],
     meal_slots: list[MealSlot],
     required_codes: tuple[str, ...],
+    calorie_target: float,
+    locked_calories: float = 0,
 ) -> tuple[list[CandidateOption], set[UUID]]:
     options: list[CandidateOption] = []
     malformed_candidate_ids: set[UUID] = set()
-    for candidate_index, candidate in enumerate(candidates):
-        variants = [
-            (serving_amount, candidate_nutrition_scaled(candidate, required_codes, serving_amount))
-            for serving_amount in SERVING_AMOUNTS
+    required_count = max(sum(slot.required for slot in meal_slots), 1)
+    remaining_calories = max(Decimal(str(calorie_target)) - Decimal(str(locked_calories)), Decimal(0))
+    target_per_meal = remaining_calories / required_count
+    # Conservative minima ignore recipe uniqueness, so they never exclude a
+    # feasible assignment. Reserve them for the other required slots, allowing
+    # unequal meal sizes when a candidate cannot supply its nominal daily share.
+    slot_minima = []
+    for slot in meal_slots:
+        eligible_calories = [
+            nutrition[CALORIES_CODE]
+            for candidate in candidates if slot.meal_type in candidate.meal_tags
+            if (nutrition := candidate_nutrition_scaled(candidate, required_codes, SERVING_AMOUNTS[0])) is not None
         ]
-        if any(nutrition_scaled is None for _, nutrition_scaled in variants):
+        slot_minima.append(min(eligible_calories, default=0) if slot.required else 0)
+    calorie_upper = scaled_tolerance_bounds(calorie_target, ALLOWED_CALORIE_TOLERANCE)[1]
+    locked_scaled = scale_amount(locked_calories)
+    for candidate_index, candidate in enumerate(candidates):
+        if candidate_nutrition_scaled(candidate, required_codes) is None:
             malformed_candidate_ids.add(candidate.recipe_id)
             continue
 
         for slot_index, slot in enumerate(meal_slots):
             if slot.meal_type in candidate.meal_tags:
-                for serving_amount, nutrition_scaled in variants:
+                budget_scaled = calorie_upper - locked_scaled - sum(slot_minima) + slot_minima[slot_index]
+                # Include half a scaling unit so rounding cannot remove an
+                # otherwise valid option exactly on the integer calorie bound.
+                calorie_budget = (Decimal(budget_scaled) + Decimal("0.5")) / NUTRITION_SCALE_FACTOR
+                for serving_amount in candidate_serving_amounts(candidate, target_per_meal, calorie_budget):
+                    nutrition_scaled = candidate_nutrition_scaled(candidate, required_codes, serving_amount)
                     options.append(
                         CandidateOption(
                             slot_index=slot_index,
@@ -468,6 +493,20 @@ def build_candidate_options(
                     )
 
     return options, malformed_candidate_ids
+
+
+def candidate_serving_amounts(
+    candidate: RecipeCandidate, target_per_meal: Decimal, calorie_budget: Decimal,
+) -> tuple[float, ...]:
+    calories = next(Decimal(str(nutrient.amount)) for nutrient in candidate.per_serving_nutrition
+                    if nutrient.code == CALORIES_CODE)
+    if not calories.is_finite() or calories <= 0:
+        return SERVING_AMOUNTS
+    nominal_maximum = target_per_meal / calories
+    maximum = min(Decimal(str(MAX_SERVING_AMOUNT)),
+                  max(Decimal(str(SERVING_AMOUNTS[-1])), nominal_maximum, calorie_budget / calories))
+    steps = int((maximum / SERVING_STEP).to_integral_value(rounding=ROUND_CEILING))
+    return tuple(float(SERVING_STEP * step) for step in range(3, steps + 1))
 
 
 def candidate_nutrition_scaled(
@@ -483,13 +522,15 @@ def candidate_nutrition_scaled(
         definition = RECIPE_NUTRIENT_DEFINITION_BY_CODE.get(code)
         if nutrient is None or definition is None:
             return None
-        if not nutrient.complete or nutrient.amount < 0 or nutrient.unit != definition.unit:
+        if (not nutrient.complete or not Decimal(str(nutrient.amount)).is_finite()
+                or nutrient.amount < 0 or nutrient.unit != definition.unit):
             return None
         nutrition_scaled[code] = scale_amount(Decimal(str(nutrient.amount)) * multiplier)
     # Carry known, non-target nutrients into snapshots without inventing solver targets.
     for code, nutrient in nutrients_by_code.items():
         definition = RECIPE_NUTRIENT_DEFINITION_BY_CODE.get(code)
         if (code not in nutrition_scaled and definition is not None and nutrient.complete
+                and Decimal(str(nutrient.amount)).is_finite()
                 and nutrient.amount >= 0 and nutrient.unit == definition.unit):
             nutrition_scaled[code] = scale_amount(Decimal(str(nutrient.amount)) * multiplier)
     return nutrition_scaled

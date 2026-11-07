@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.meal_planning.solver import SolverNutritionTargets
+from app.meal_planning.solver import MAX_SERVING_AMOUNT, SolverNutritionTargets
 from app.models.meal_plan import MealPlan, MealPlanItem
 from app.models.recipe import Recipe
 from app.models.user import User
@@ -59,7 +59,7 @@ def assert_portion_snapshot(db, meal, expected_servings):
     assert {item.nutrient_code: item.amount for item in stored.nutrients} == meal["nutrition"]
 
 
-@pytest.mark.parametrize("servings", [1.5, 2.0])
+@pytest.mark.parametrize("servings", [1.5, 2.0, 3.5, 6.75])
 def test_preview_persistence_ingredients_totals_and_get_use_selected_servings(portion_user, monkeypatch, servings):
     db, token, _, recipe_candidate, _ = portion_user
     target = set_portion_targets(monkeypatch, recipe_candidate, servings)
@@ -83,7 +83,7 @@ def test_preview_persistence_ingredients_totals_and_get_use_selected_servings(po
     assert fetched.json() == plan
 
 
-@pytest.mark.parametrize("target_multiplier", [0.25, 5.0])
+@pytest.mark.parametrize("target_multiplier", [0.25, MAX_SERVING_AMOUNT * 2])
 def test_outside_calorie_tolerance_is_not_persisted(portion_user, monkeypatch, target_multiplier):
     db, token, user, recipe_candidate, _ = portion_user
     set_portion_targets(monkeypatch, recipe_candidate, target_multiplier)
@@ -102,9 +102,10 @@ def test_outside_calorie_tolerance_is_not_persisted(portion_user, monkeypatch, t
     assert db.query(MealPlan).filter_by(user_id=user.id).count() == 0
 
 
-def test_swap_preserves_schedule_and_uses_scaled_servings_nutrition_and_ingredients(portion_user, monkeypatch):
+@pytest.mark.parametrize("servings", [1.5, 3.5])
+def test_swap_preserves_schedule_and_uses_scaled_servings_nutrition_and_ingredients(portion_user, monkeypatch, servings):
     db, token, _, recipe_candidate, track_recipe = portion_user
-    set_portion_targets(monkeypatch, recipe_candidate, 1.5)
+    set_portion_targets(monkeypatch, recipe_candidate, servings)
     original_recipe = db.get(Recipe, recipe_candidate.recipe_id)
     replacement = create_recipe(db, token, track_recipe, {
         "name": f"Portion replacement {uuid4().hex}", "servings": float(original_recipe.servings),
@@ -129,9 +130,9 @@ def test_swap_preserves_schedule_and_uses_scaled_servings_nutrition_and_ingredie
     swapped = plan["meals"][0]
     assert swapped["id"] == item["id"]
     assert swapped["recipe_id"] == replacement["id"]
-    assert swapped["servings"] == 1.5
+    assert swapped["servings"] == servings
     assert swapped["scheduled_time"] == item["scheduled_time"]
     assert swapped["nutrition"] == item["nutrition"]
     assert plan["daily_totals"] == original["daily_totals"]
-    assert_portion_snapshot(db, swapped, 1.5)
+    assert_portion_snapshot(db, swapped, servings)
     assert request("GET", f"/meal-plans/{plan['meal_plan_id']}", token).json() == plan

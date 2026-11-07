@@ -6,7 +6,7 @@ import pytest
 from app.meal_planning.solver import (
     DailyPlanSolverInput,
     MealSlot,
-    SERVING_AMOUNTS,
+    MAX_SERVING_AMOUNT,
     SolverNutritionTargets,
     SolverStatus,
     ToleranceStatus,
@@ -56,7 +56,8 @@ def test_high_calorie_day_uses_two_servings_instead_of_returning_under_target():
     ))
 
     assert result.status == SolverStatus.OPTIMAL
-    assert [meal.serving_amount for meal in result.meals] == [2.0] * 4
+    assert len(result.meals) == 4
+    assert all(0.75 <= meal.serving_amount <= MAX_SERVING_AMOUNT for meal in result.meals)
     assert result.daily_totals["calories"] == 3719
     assert result.daily_totals["calories"] == sum(meal.nutrition["calories"] for meal in result.meals)
 
@@ -75,7 +76,7 @@ def test_severely_under_or_over_target_is_infeasible(calories):
     assert result.objective_value is None
 
 
-@pytest.mark.parametrize("calories,target_calories,servings", [(400, 880, 2.0), (1400, 960, 0.75)])
+@pytest.mark.parametrize("calories,target_calories,servings", [(100, 880, MAX_SERVING_AMOUNT), (1400, 960, 0.75)])
 def test_calories_outside_five_percent_but_within_ten_percent_are_allowed(calories, target_calories, servings):
     result = solve_daily_plan(DailyPlanSolverInput(
         candidates=[candidate("Fallback", ["dinner"], nutrient_amounts(
@@ -93,7 +94,7 @@ def test_calories_outside_five_percent_but_within_ten_percent_are_allowed(calori
     assert result.within_preferred_tolerance is False
 
 
-@pytest.mark.parametrize("calories,expected_status", [(449.999, SolverStatus.INFEASIBLE), (450, SolverStatus.OPTIMAL)])
+@pytest.mark.parametrize("calories,expected_status", [(112.499, SolverStatus.INFEASIBLE), (112.5, SolverStatus.OPTIMAL)])
 def test_calorie_lower_limit_is_inclusive(calories, expected_status):
     result = solve_daily_plan(DailyPlanSolverInput(
         candidates=[candidate("Boundary", ["dinner"], nutrient_amounts(calories=calories))],
@@ -129,7 +130,7 @@ def test_recipe_uniqueness_covers_all_variants_and_repeated_candidate_ids():
     assert result.status == SolverStatus.OPTIMAL
     assert len(result.meals) == 2
     assert {meal.recipe_id for meal in result.meals} == {flexible.recipe_id, lunch.recipe_id}
-    assert all(meal.serving_amount in SERVING_AMOUNTS for meal in result.meals)
+    assert all(meal.serving_amount * 4 == int(meal.serving_amount * 4) for meal in result.meals)
 
 
 @pytest.mark.parametrize("first_calcium,upper_limit", [(100, None), (1000, 400)])
