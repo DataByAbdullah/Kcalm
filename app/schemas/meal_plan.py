@@ -42,6 +42,7 @@ class DailySolverPreviewRequest(BaseModel):
 
 class SelectedMealResponse(BaseModel):
     meal_type: MealType
+    image_url: str | None = None
     recipe_id: UUID
     recipe_name: str
     serving_amount: float
@@ -126,6 +127,7 @@ class MealSwapRequest(BaseModel):
 
 class PersistedMealPlanItemResponse(BaseModel):
     id: UUID
+    image_url: str | None = None
     meal_type: MealType
     recipe_id: UUID
     recipe_name: str

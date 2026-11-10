@@ -11,6 +11,7 @@ from app.meal_planning.solver import (
     SolverConfig,
     SolverMicronutrientTarget,
     SolverNutritionTargets,
+    SolverStatus,
     default_meal_slots,
     solve_daily_plan,
 )
@@ -26,6 +27,16 @@ from app.schemas.meal_plan import DailySolverPreviewRequest
 from app.services.recipe_candidate_service import get_recipe_candidates
 from app.services.meal_schedule_service import schedule_meal_times
 from app.services.user_profile_service import get_profile
+
+
+def raise_on_solver_timeout(result: DailyPlanSolverResult) -> None:
+    if result.status is SolverStatus.UNKNOWN:
+        raise APIErrorException(
+            status_code=503,
+            code="MEAL_SOLVER_TIME_LIMIT_EXCEEDED",
+            message="The meal solver reached its time limit. Please retry.",
+            details={"reason": "solver_time_limit_exceeded"},
+        )
 
 
 def solve_daily_plan_preview(

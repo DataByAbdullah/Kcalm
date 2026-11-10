@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     openai_timeout_seconds: float = 10.0
+    openai_image_model: str = "gpt-image-2.6-flare"
+    openai_image_size: str = "1024x1024"
+    openai_image_quality: str = "medium"
+    openai_image_complexity: str = "low"
+    openai_image_timeout_seconds: float = Field(default=180.0, gt=0)
+    image_storage_bucket: str = ""
+    image_storage_region: str = "us-east-1"
+    image_storage_endpoint_url: str = ""
+    image_storage_public_base_url: str = ""
+    image_storage_access_key_id: str = ""
+    image_storage_secret_access_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

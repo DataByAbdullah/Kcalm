@@ -22,6 +22,8 @@ from app.schemas.recipe import (
     RecipeSummaryResponse,
     RecipeUpdateRequest,
 )
+from app.schemas.recipe_image import RecipeImageGenerateRequest, RecipeImageResponse
+from app.services.recipe_image_service import generate_recipe_image
 from app.services.recipe_candidate_service import (
     CandidateFilterResult,
     CandidateNutrient,
@@ -43,6 +45,7 @@ router = APIRouter()
 def recipe_to_summary_response(recipe: Recipe) -> RecipeSummaryResponse:
     return RecipeSummaryResponse(
         id=recipe.id,
+        image_url=recipe.image_url,
         name=recipe.name,
         description=recipe.description,
         servings=float(recipe.servings),
@@ -79,6 +82,7 @@ def recipe_to_detail_response(recipe: Recipe) -> RecipeDetailResponse:
 
     return RecipeDetailResponse(
         id=recipe.id,
+        image_url=recipe.image_url,
         name=recipe.name,
         description=recipe.description,
         servings=float(recipe.servings),
@@ -141,6 +145,7 @@ def candidate_nutrient_to_response(nutrient: CandidateNutrient) -> RecipeNutrien
 def candidate_to_response(candidate: RecipeCandidate) -> RecipeCandidateResponse:
     return RecipeCandidateResponse(
         recipe_id=candidate.recipe_id,
+        image_url=candidate.image_url,
         name=candidate.name,
         servings=candidate.servings,
         total_time_minutes=candidate.total_time_minutes,
@@ -249,6 +254,16 @@ def read_recipe_detail(
     db: Session = Depends(get_db),
 ) -> RecipeDetailResponse:
     return recipe_to_detail_response(get_recipe_detail(db=db, recipe_id=recipe_id))
+
+
+@router.post("/{recipe_id}/image/generate", response_model=RecipeImageResponse)
+def generate_recipe_image_endpoint(
+    recipe_id: UUID,
+    payload: RecipeImageGenerateRequest | None = None,
+    _current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RecipeImageResponse:
+    return generate_recipe_image(db, recipe_id, force=payload.force if payload else False)
 
 
 @router.patch("/{recipe_id}", response_model=RecipeDetailResponse)

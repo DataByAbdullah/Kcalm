@@ -19,6 +19,9 @@ FAT_CODE = "fat"
 MACRO_CODES = (PROTEIN_CODE, CARBOHYDRATES_CODE, FAT_CODE)
 CORE_NUTRIENT_CODES = (CALORIES_CODE, *MACRO_CODES)
 DEFAULT_SOLVER_TIMEOUT_SECONDS = 3.0
+# Feasibility and optimization share the caller's budget; no timeout is added.
+FEASIBILITY_BUDGET_FRACTION = 0.3
+MAX_FEASIBILITY_SECONDS = 1.0
 DEFAULT_TOLERANCE = 0.05
 ALLOWED_CALORIE_TOLERANCE = 0.10
 SERVING_AMOUNTS = (0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
@@ -39,6 +42,7 @@ class SolverStatus(StrEnum):
     OPTIMAL = "optimal"
     FEASIBLE = "feasible"
     INFEASIBLE = "infeasible"
+    UNKNOWN = "unknown"
 
 
 class ToleranceStatus(StrEnum):
@@ -156,6 +160,12 @@ class CandidateOption:
     nutrition_scaled: dict[str, int]
 
 
+@dataclass(frozen=True)
+class SolverAssignment:
+    values: list[int]
+    objective_value: int
+
+
 def default_meal_slots(meals_per_day: int | None = None) -> list[MealSlot]:
     if meals_per_day is not None:
         meal_types = {
@@ -195,7 +205,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         malformed_candidate_ids=malformed_candidate_ids,
     )
     if structural_reasons:
-        return infeasible_result(
+        return unsolved_result(
             solver_input=solver_input,
             reasons=structural_reasons,
             solve_time_seconds=perf_counter() - started_at,
@@ -222,7 +232,9 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         else:
             model.Add(sum(slot_variables) <= 1)
 
-    recipe_ids = sorted({option.candidate.recipe_id for option in options})
+    # Preserve candidate order instead of letting random database UUIDs change
+    # the model's constraint order and single-worker search behavior.
+    recipe_ids = dict.fromkeys(option.candidate.recipe_id for option in options)
     for recipe_id in recipe_ids:
         candidate_variables = [
             variables[index]
@@ -247,11 +259,16 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         solver_input.targets.calories, ALLOWED_CALORIE_TOLERANCE
     )
     model.AddLinearConstraint(totals[CALORIES_CODE], calorie_lower, calorie_upper)
+    # Stage A needs only the choices and hard constraints. Nutrition deviation
+    # variables belong to optimization and can make satisfaction presolve costly.
+    hard_model = model.Clone()
 
     objective_terms = []
+    hint_terms = []
     objective_upper_bound = add_absolute_deviation_terms(
         model=model,
         objective_terms=objective_terms,
+        hint_terms=hint_terms,
         total=totals[CALORIES_CODE],
         target_scaled=scale_amount(solver_input.targets.calories),
         coefficient=objective_coefficient(
@@ -269,6 +286,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         objective_upper_bound += add_absolute_deviation_terms(
             model=model,
             objective_terms=objective_terms,
+            hint_terms=hint_terms,
             total=totals[code],
             target_scaled=scale_amount(amount),
             coefficient=objective_coefficient(
@@ -292,6 +310,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
             f"{micronutrient.code}_shortfall",
         )
         model.Add(shortfall >= target_scaled - totals[micronutrient.code])
+        hint_terms.append((shortfall, target_scaled - totals[micronutrient.code]))
         coefficient = objective_coefficient(
             weight=MICRONUTRIENT_SHORTFALL_WEIGHT, target=minimum_target
         )
@@ -311,6 +330,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
                 f"{micronutrient.code}_upper_excess",
             )
             model.Add(excess >= totals[micronutrient.code] - upper_scaled)
+            hint_terms.append((excess, totals[micronutrient.code] - upper_scaled))
             coefficient = objective_coefficient(
                 weight=MICRONUTRIENT_UPPER_EXCESS_WEIGHT, target=micronutrient.upper_limit or 1
             )
@@ -334,26 +354,24 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
 
     objective = sum(objective_terms)
     model.Minimize(objective)
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = solver_input.config.time_limit_seconds
-    solver.parameters.num_search_workers = 1
-    solver.parameters.random_seed = 0
-
-    raw_status = solver.Solve(model)
-    status = map_cp_solver_status(raw_status)
+    status, assignment = solve_feasibility_then_optimize(
+        model, hard_model, totals[CALORIES_CODE], (preferred_lower, preferred_upper),
+        outside_preferred, objective, hint_terms, solver_input.config.time_limit_seconds,
+    )
     solve_time_seconds = perf_counter() - started_at
-    if status is SolverStatus.INFEASIBLE:
-        return infeasible_result(
+    if status in {SolverStatus.INFEASIBLE, SolverStatus.UNKNOWN}:
+        return unsolved_result(
             solver_input=solver_input,
             reasons=[
                 "calorie_target_outside_allowed_tolerance"
-                if raw_status == cp_model.INFEASIBLE else "solver_no_structurally_valid_assignment"
+                if status is SolverStatus.INFEASIBLE else "solver_time_limit_exceeded"
             ],
             solve_time_seconds=solve_time_seconds,
+            status=status,
         )
 
     selected_options = [
-        option for index, option in enumerate(options) if solver.BooleanValue(variables[index])
+        option for index, option in enumerate(options) if assignment.values[index]
     ]
     meals = selected_meals_from_options(selected_options)
     daily_totals = daily_totals_from_meals(
@@ -362,7 +380,7 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         locked_nutrition=solver_input.locked_nutrition,
     )
     if not calorie_lower <= scale_amount(daily_totals[CALORIES_CODE]) <= calorie_upper:
-        return infeasible_result(
+        return unsolved_result(
             solver_input=solver_input,
             reasons=["calorie_target_outside_allowed_tolerance"],
             solve_time_seconds=solve_time_seconds,
@@ -391,11 +409,98 @@ def solve_daily_plan(solver_input: DailyPlanSolverInput) -> DailyPlanSolverResul
         deviations=deviations,
         micronutrient_coverage=micronutrient_coverage,
         within_preferred_tolerance=within_preferred_tolerance,
-        objective_value=solver.Value(objective),
+        objective_value=assignment.objective_value,
         infeasibility_reasons=[],
         solve_time_seconds=solve_time_seconds,
         candidate_count=len(solver_input.candidates),
     )
+
+
+def bounded_solver(time_limit_seconds: float) -> cp_model.CpSolver:
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = time_limit_seconds
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 0
+    return solver
+
+
+def solve_feasibility_then_optimize(
+    model: cp_model.CpModel,
+    hard_model: cp_model.CpModel,
+    calorie_total,
+    preferred_bounds: tuple[int, int],
+    outside_preferred,
+    objective,
+    hint_terms: list,
+    time_limit_seconds: float,
+) -> tuple[SolverStatus, SolverAssignment | None]:
+    """Keep a hard-feasible incumbent even if optimization exhausts its budget."""
+    started_at = perf_counter()
+    deadline = started_at + time_limit_seconds
+    feasibility_budget = min(MAX_FEASIBILITY_SECONDS, time_limit_seconds * FEASIBILITY_BUDGET_FRACTION)
+    feasibility_deadline = started_at + feasibility_budget
+    preferred_model = hard_model.Clone()
+    preferred_model.AddLinearConstraint(calorie_total, *preferred_bounds)
+
+    incumbent = None
+    # First try the preferred calorie band without optimizing nutrition. Failure
+    # here proves nothing about the wider hard band, which is tried next.
+    for feasibility_model, stage_deadline in (
+        (preferred_model, started_at + feasibility_budget / 2),
+        (hard_model, feasibility_deadline),
+    ):
+        remaining = stage_deadline - perf_counter()
+        if remaining <= 0:
+            continue
+        solver = bounded_solver(remaining)
+        status = map_cp_solver_status(solver.Solve(feasibility_model))
+        if status in {SolverStatus.OPTIMAL, SolverStatus.FEASIBLE}:
+            values = [0] * len(model.Proto().variables)
+            for index in range(len(hard_model.Proto().variables)):
+                values[index] = solver.Value(hard_model.GetIntVarFromProtoIndex(index))
+            # Complete the optimization-only hint analytically from the verified
+            # meal choices. Every deviation is the nonnegative part of its
+            # integer nutrition difference, including locked meal nutrition.
+            for variable, expression in hint_terms:
+                values[variable.Index()] = max(0, solver.Value(expression))
+            calories = solver.Value(calorie_total)
+            values[outside_preferred.Index()] = int(not preferred_bounds[0] <= calories <= preferred_bounds[1])
+            objective_proto = model.Proto().objective
+            objective_value = int(objective_proto.offset) + sum(
+                coefficient * values[index]
+                for index, coefficient in zip(objective_proto.vars, objective_proto.coeffs, strict=True)
+            )
+            incumbent = SolverAssignment(values, objective_value)
+            break
+        if feasibility_model is hard_model and status is SolverStatus.INFEASIBLE:
+            return status, None
+
+    if incumbent is not None:
+        # Include auxiliary integer variables, not just meal choices: a complete
+        # feasible hint lets optimization reuse the assignment immediately.
+        for index in range(len(model.Proto().variables)):
+            variable = model.GetIntVarFromProtoIndex(index)
+            model.AddHint(variable, incumbent.values[index])
+
+    remaining = deadline - perf_counter()
+    if remaining > 0:
+        optimized = bounded_solver(remaining)
+        status = map_cp_solver_status(optimized.Solve(model))
+        if status in {SolverStatus.OPTIMAL, SolverStatus.FEASIBLE}:
+            objective_value = optimized.Value(objective)
+            if incumbent is None or objective_value <= incumbent.objective_value:
+                return status, SolverAssignment(
+                    [optimized.Value(model.GetIntVarFromProtoIndex(index)) for index in range(len(model.Proto().variables))],
+                    objective_value,
+                )
+        elif status is SolverStatus.INFEASIBLE:
+            if incumbent is not None:
+                raise MealSolverInputError("Optimization rejected a hard-feasible assignment.")
+            return status, None
+    if incumbent is not None:
+        # OPTIMAL from a satisfaction-only solve is not a nutrition optimum.
+        return SolverStatus.FEASIBLE, incumbent
+    return SolverStatus.UNKNOWN, None
 
 
 def validate_solver_input(solver_input: DailyPlanSolverInput) -> None:
@@ -592,6 +697,7 @@ def required_slots_have_distinct_recipes(meal_slots: list[MealSlot], options: li
 def add_absolute_deviation_terms(
     model: cp_model.CpModel,
     objective_terms: list,
+    hint_terms: list,
     total,
     target_scaled: int,
     coefficient: int,
@@ -602,6 +708,7 @@ def add_absolute_deviation_terms(
     positive = model.NewIntVar(0, upper_bound, f"{name}_positive_deviation")
     negative = model.NewIntVar(0, upper_bound, f"{name}_negative_deviation")
     model.Add(total - target_scaled == positive - negative)
+    hint_terms.extend([(positive, total - target_scaled), (negative, target_scaled - total)])
     objective_terms.extend([positive * coefficient, negative * coefficient])
     return 2 * upper_bound * coefficient
 
@@ -646,7 +753,11 @@ def map_cp_solver_status(raw_status: int) -> SolverStatus:
         return SolverStatus.OPTIMAL
     if raw_status == cp_model.FEASIBLE:
         return SolverStatus.FEASIBLE
-    return SolverStatus.INFEASIBLE
+    if raw_status == cp_model.INFEASIBLE:
+        return SolverStatus.INFEASIBLE
+    if raw_status == cp_model.UNKNOWN:
+        return SolverStatus.UNKNOWN
+    raise MealSolverInputError("The meal solver model is invalid.")
 
 
 def selected_meals_from_options(options: list[CandidateOption]) -> list[SelectedMeal]:
@@ -763,11 +874,13 @@ def build_micronutrient_coverage(
     return coverage
 
 
-def infeasible_result(
+def unsolved_result(
     solver_input: DailyPlanSolverInput,
     reasons: list[str],
     solve_time_seconds: float,
+    status: SolverStatus = SolverStatus.INFEASIBLE,
 ) -> DailyPlanSolverResult:
+    """Report proven infeasibility or an unfinished search without any meals."""
     required_codes = required_nutrient_codes(solver_input.targets)
     daily_totals = {
         code: unscale_amount(amount)
@@ -786,7 +899,7 @@ def infeasible_result(
         micronutrient_targets=solver_input.targets.micronutrients,
     )
     return DailyPlanSolverResult(
-        status=SolverStatus.INFEASIBLE,
+        status=status,
         meals=[],
         daily_totals=daily_totals,
         targets=solver_input.targets,

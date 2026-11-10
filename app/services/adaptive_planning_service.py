@@ -27,7 +27,7 @@ from app.schemas.adaptive_planning import AdaptivePlanRequest
 from app.schemas.meal_plan import MealPlanCreateRequest, MealSlotRequest
 from app.services.meal_log_service import get_actual_summary
 from app.services.meal_plan_service import create_daily_meal_plan, get_meal_plan_detail
-from app.services.meal_solver_service import solve_daily_plan_preview
+from app.services.meal_solver_service import raise_on_solver_timeout, solve_daily_plan_preview
 
 
 ADAPTIVE_POLICY_VERSION = "adaptive_v1"
@@ -192,6 +192,7 @@ def create_adaptive_next_day_plan(
         payload=solver_payload,
         target_override=adjusted_target.solver_targets,
     )
+    raise_on_solver_timeout(solver_result)
     if solver_result.status is SolverStatus.INFEASIBLE:
         raise adaptive_plan_infeasible_error(solver_result)
 

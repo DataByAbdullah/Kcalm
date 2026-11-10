@@ -65,6 +65,7 @@ from app.services.meal_plan_service import (
     solver_targets_from_plan,
 )
 from app.services.meal_solver_service import solve_daily_plan_preview
+from app.services.recipe_service import recipe_image_urls
 from app.services.meal_swap_service import swap_meal_plan_item
 
 
@@ -152,7 +153,7 @@ def adaptive_target_to_response(target: AdaptiveTarget) -> AdaptiveTargetRespons
     )
 
 
-def adaptive_preview_to_response(preview) -> AdaptivePreviewResponse:
+def adaptive_preview_to_response(preview, db: Session) -> AdaptivePreviewResponse:
     return AdaptivePreviewResponse(
         source_plan_id=preview.source_plan.id,
         next_day_date=preview.next_day_date,
@@ -162,7 +163,7 @@ def adaptive_preview_to_response(preview) -> AdaptivePreviewResponse:
         micronutrient_deviation=preview.micronutrient_deviation,
         policy=adaptive_policy_to_response(preview.policy),
         adjusted_targets=adaptive_target_to_response(preview.adjusted_target),
-        solver_preview=solver_result_to_response(preview.solver_result),
+        solver_preview=solver_result_to_response(preview.solver_result, db),
     )
 
 
@@ -176,13 +177,16 @@ def adaptive_plan_to_response(creation) -> AdaptivePlanResponse:
 
 def solver_result_to_response(
     result: DailyPlanSolverResult,
+    db: Session,
 ) -> DailySolverPreviewResponse:
+    image_urls = recipe_image_urls(db, [meal.recipe_id for meal in result.meals])
     return DailySolverPreviewResponse(
         status=result.status,
         meals=[
             SelectedMealResponse(
                 meal_type=meal.meal_type,
                 recipe_id=meal.recipe_id,
+                image_url=image_urls.get(meal.recipe_id),
                 recipe_name=meal.recipe_name,
                 serving_amount=meal.serving_amount,
                 scheduled_time=meal.scheduled_time,
@@ -318,6 +322,7 @@ def plan_to_response(plan: MealPlan) -> MealPlanResponse:
                 id=item.id,
                 meal_type=item.meal_type,
                 recipe_id=item.recipe_id,
+                image_url=item.recipe.image_url if item.recipe is not None else None,
                 recipe_name=item.recipe_name_snapshot,
                 servings=item.servings,
                 position=item.position,
@@ -362,7 +367,7 @@ def preview_daily_solver(
     db: Session = Depends(get_db),
 ) -> DailySolverPreviewResponse:
     result = solve_daily_plan_preview(db=db, user=current_user, payload=payload)
-    return solver_result_to_response(result)
+    return solver_result_to_response(result, db)
 
 
 @router.post("", response_model=MealPlanResponse, status_code=status.HTTP_201_CREATED)
@@ -440,7 +445,7 @@ def preview_adaptive_next_day(
         source_plan_id=source_plan_id,
         payload=payload or AdaptivePlanRequest(),
     )
-    return adaptive_preview_to_response(preview)
+    return adaptive_preview_to_response(preview, db)
 
 
 @router.post(

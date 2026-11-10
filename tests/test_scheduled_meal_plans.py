@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, time
 from uuid import UUID
 
 import pytest
+from ortools.sat.python import cp_model
 
 from app.models.meal_plan import MealPlan, MealPlanItem
 from app.meal_planning.solver import MAX_SERVING_AMOUNT, SolverNutritionTargets
@@ -168,13 +169,23 @@ def test_legacy_plan_item_can_return_null_schedule(plan_user):
     assert detail.json()["meals"][0]["scheduled_time"] is None
 
 
-def test_weekly_children_use_profile_slots_and_schedule(plan_user):
+@pytest.mark.parametrize("optimization_times_out", [False, True], ids=["optimized", "feasibility-fallback"])
+def test_weekly_children_use_profile_slots_and_schedule(plan_user, monkeypatch, optimization_times_out):
+    if optimization_times_out:
+        solve = cp_model.CpSolver.Solve
+
+        def solve_or_timeout(self, model, *args, **kwargs):
+            return cp_model.UNKNOWN if model.HasObjective() else solve(self, model, *args, **kwargs)
+
+        monkeypatch.setattr(cp_model.CpSolver, "Solve", solve_or_timeout)
     db, token = plan_user
     response = request("POST", "/weekly-meal-plans", token, {"start_date": "2026-11-02"})
     assert response.status_code == 201, response.text
     week = response.json()
     assert len(week["daily_plans"]) == 7
     for day in week["daily_plans"]:
+        if optimization_times_out:
+            assert day["solver_status"] == "feasible"
         assert_portions_and_calorie_tolerance(day)
         assert [meal["meal_type"] for meal in day["meals"]] == ["breakfast", "lunch", "pre_workout", "dinner"]
         assert [meal["scheduled_time"] for meal in day["meals"]] == ["12:00:00", "16:20:00", "20:40:00", "01:00:00"]

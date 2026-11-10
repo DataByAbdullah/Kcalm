@@ -99,6 +99,7 @@ class RecipeCandidate:
     preference_match_count: int
     matched_preference_food_names: list[str]
     matched_preference_tags: list[str]
+    image_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -343,6 +344,7 @@ def recipe_to_candidate(recipe: Recipe, context: CandidateFilterContext) -> Reci
 
     return RecipeCandidate(
         recipe_id=recipe.id,
+        image_url=recipe.image_url,
         name=recipe.name,
         servings=float(recipe.servings),
         total_time_minutes=recipe.total_time_minutes,

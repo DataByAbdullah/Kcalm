@@ -31,7 +31,7 @@ from app.models.recipe import Recipe, RecipeIngredient
 from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.schemas.meal_plan import MealPlanCreateRequest
-from app.services.meal_solver_service import solve_daily_plan_preview
+from app.services.meal_solver_service import raise_on_solver_timeout, solve_daily_plan_preview
 from app.services.user_profile_service import get_profile
 
 
@@ -88,6 +88,7 @@ def create_daily_meal_plan(
         payload=solver_payload,
         target_override=target_override,
     )
+    raise_on_solver_timeout(solver_result)
     if solver_result.status is SolverStatus.INFEASIBLE:
         raise infeasible_plan_error(solver_result)
 
@@ -286,6 +287,7 @@ def get_meal_plan_detail(
         db.query(MealPlan)
         .options(
             selectinload(MealPlan.items).selectinload(MealPlanItem.nutrients),
+            selectinload(MealPlan.items).selectinload(MealPlanItem.recipe),
             selectinload(MealPlan.items).selectinload(MealPlanItem.ingredient_snapshots),
             selectinload(MealPlan.micronutrient_targets),
         )
@@ -308,6 +310,7 @@ def list_meal_plans(
         db.query(MealPlan)
         .options(
             selectinload(MealPlan.items).selectinload(MealPlanItem.nutrients),
+            selectinload(MealPlan.items).selectinload(MealPlanItem.recipe),
             selectinload(MealPlan.items).selectinload(MealPlanItem.ingredient_snapshots),
             selectinload(MealPlan.micronutrient_targets),
         )

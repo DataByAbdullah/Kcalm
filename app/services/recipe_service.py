@@ -101,6 +101,13 @@ def get_recipe_detail(db: Session, recipe_id: UUID) -> Recipe:
     return recipe
 
 
+def recipe_image_urls(db: Session, recipe_ids: list[UUID]) -> dict[UUID, str | None]:
+    """Resolve display metadata in one query without changing solver inputs."""
+    if not recipe_ids:
+        return {}
+    return dict(db.query(Recipe.id, Recipe.image_url).filter(Recipe.id.in_(recipe_ids)).all())
+
+
 def create_recipe(
     db: Session,
     payload: RecipeCreateRequest,

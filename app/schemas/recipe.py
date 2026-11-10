@@ -82,6 +82,7 @@ class RecipeUpdateRequest(BaseModel):
 
 class RecipeSummaryResponse(BaseModel):
     id: UUID
+    image_url: str | None = None
     name: str
     description: str | None
     servings: float
@@ -144,6 +145,7 @@ class RecipeNutritionResponse(BaseModel):
 
 class RecipeDetailResponse(BaseModel):
     id: UUID
+    image_url: str | None = None
     name: str
     description: str | None
     servings: float
@@ -172,6 +174,7 @@ class RecipeCandidatePreviewRequest(BaseModel):
 
 class RecipeCandidateResponse(BaseModel):
     recipe_id: UUID
+    image_url: str | None = None
     name: str
     servings: float
     total_time_minutes: int

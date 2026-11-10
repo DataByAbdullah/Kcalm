@@ -491,7 +491,10 @@ def test_malformed_candidate_nutrition_is_handled_safely() -> None:
 def test_solver_status_mapping_supports_feasible_not_optimal() -> None:
     assert map_cp_solver_status(cp_model.OPTIMAL) == SolverStatus.OPTIMAL
     assert map_cp_solver_status(cp_model.FEASIBLE) == SolverStatus.FEASIBLE
-    assert map_cp_solver_status(cp_model.UNKNOWN) == SolverStatus.INFEASIBLE
+    assert map_cp_solver_status(cp_model.INFEASIBLE) == SolverStatus.INFEASIBLE
+    assert map_cp_solver_status(cp_model.UNKNOWN) == SolverStatus.UNKNOWN
+    with pytest.raises(MealSolverInputError, match="model is invalid"):
+        map_cp_solver_status(cp_model.MODEL_INVALID)
 
 
 def test_preview_service_uses_candidate_filtering(monkeypatch) -> None:

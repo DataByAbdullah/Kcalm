@@ -221,6 +221,9 @@ def get_weekly_plan_detail(
         .options(
             selectinload(WeeklyMealPlan.daily_plans)
             .selectinload(MealPlan.items)
+            .selectinload(MealPlanItem.recipe),
+            selectinload(WeeklyMealPlan.daily_plans)
+            .selectinload(MealPlan.items)
             .selectinload(MealPlanItem.nutrients),
             selectinload(WeeklyMealPlan.daily_plans)
             .selectinload(MealPlan.items)

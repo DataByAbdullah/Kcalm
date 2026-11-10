@@ -2,6 +2,7 @@ from datetime import time
 from uuid import UUID
 
 import pytest
+from ortools.sat.python import cp_model
 
 from app.meal_planning.solver import MAX_SERVING_AMOUNT
 from app.models.meal_plan import MealPlanItem
@@ -22,6 +23,7 @@ def high_calorie_user(meal_plan_db, seeded_schedule_catalog):
     return db, token, track_recipe
 
 
+@pytest.mark.parametrize("optimization_times_out", [False, True], ids=["optimized", "feasibility-fallback"])
 @pytest.mark.parametrize("count,meal_types,times,without_blender", [
     (2, ["breakfast", "dinner"], ["12:00:00", "01:00:00"], False),
     (3, ["breakfast", "lunch", "dinner"], ["12:00:00", "18:30:00", "01:00:00"], False),
@@ -33,8 +35,15 @@ def high_calorie_user(meal_plan_db, seeded_schedule_catalog):
                  id="five-meals-without-blender"),
 ])
 def test_real_seeded_catalog_generates_3719_kcal_with_profile_meal_count(
-    high_calorie_user, count, meal_types, times, without_blender, record_property,
+    high_calorie_user, count, meal_types, times, without_blender, record_property, monkeypatch, optimization_times_out,
 ):
+    if optimization_times_out:
+        solve = cp_model.CpSolver.Solve
+
+        def solve_or_timeout(self, model, *args, **kwargs):
+            return cp_model.UNKNOWN if model.HasObjective() else solve(self, model, *args, **kwargs)
+
+        monkeypatch.setattr(cp_model.CpSolver, "Solve", solve_or_timeout)
     db, token, track_recipe = high_calorie_user
     changes = {"meals_per_day": count}
     if without_blender:
@@ -46,8 +55,13 @@ def test_real_seeded_catalog_generates_3719_kcal_with_profile_meal_count(
     created = request("POST", "/meal-plans", token, {"plan_date": "2026-11-02"})
     assert created.status_code == 201, created.text
     plan = created.json()
+    if optimization_times_out:
+        assert plan["solver_status"] == "feasible"
     assert plan["targets"]["calories"] == pytest.approx(3719)
-    assert 0.95 * 3719 <= plan["daily_totals"]["calories"] <= 1.05 * 3719
+    # A forced optimization timeout may use the hard-feasible incumbent. Keep
+    # the original optimized cases' stricter preferred-band regression intact.
+    tolerance = 0.10 if optimization_times_out else 0.05
+    assert (1 - tolerance) * 3719 <= plan["daily_totals"]["calories"] <= (1 + tolerance) * 3719
     record_property("daily_calories", plan["daily_totals"]["calories"])
     assert [meal["meal_type"] for meal in plan["meals"]] == meal_types
     assert [meal["scheduled_time"] for meal in plan["meals"]] == times

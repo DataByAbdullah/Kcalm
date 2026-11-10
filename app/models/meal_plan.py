@@ -172,6 +172,7 @@ class MealPlanItem(TimestampedUUIDBase):
     scheduled_time: Mapped[time | None] = mapped_column(Time, nullable=True)
 
     meal_plan = relationship("MealPlan", back_populates="items")
+    recipe = relationship("Recipe")
     nutrients = relationship(
         "MealPlanItemNutrientSnapshot",
         back_populates="meal_plan_item",

@@ -29,6 +29,7 @@ from app.services.meal_plan_service import (
     solver_targets_from_plan,
 )
 from app.services.recipe_candidate_service import get_recipe_candidates
+from app.services.meal_solver_service import raise_on_solver_timeout
 
 
 def meal_plan_archived_error() -> APIErrorException:
@@ -128,6 +129,7 @@ def swap_meal_plan_item(
             locked_nutrition=nutrition_totals_for_items(locked_items),
         )
     )
+    raise_on_solver_timeout(solver_result)
     if solver_result.status is SolverStatus.INFEASIBLE or not solver_result.meals:
         raise no_swap_candidate_error(
             {

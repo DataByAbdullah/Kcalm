@@ -1,9 +1,11 @@
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -12,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +27,10 @@ class Recipe(TimestampedUUIDBase):
     __table_args__ = (
         CheckConstraint("length(btrim(name)) > 0", name="ck_recipes_name_not_blank"),
         CheckConstraint("servings > 0", name="ck_recipes_servings_positive"),
+        CheckConstraint(
+            "image_status in ('missing', 'generating', 'ready', 'failed')",
+            name="ck_recipes_image_status_valid",
+        ),
         CheckConstraint("prep_time_minutes >= 0", name="ck_recipes_prep_time_non_negative"),
         CheckConstraint("cook_time_minutes >= 0", name="ck_recipes_cook_time_non_negative"),
         CheckConstraint("total_time_minutes >= 0", name="ck_recipes_total_time_non_negative"),
@@ -46,6 +53,17 @@ class Recipe(TimestampedUUIDBase):
     instructions_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="user_created")
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    image_status: Mapped[str] = mapped_column(String(16), nullable=False, default="missing", server_default="missing")
+    image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    image_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    image_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A recoverable claim prevents concurrent paid requests without holding a
+    # database transaction open while OpenAI or object storage is contacted.
+    image_generation_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    image_generation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     ingredients = relationship(
         "RecipeIngredient",
