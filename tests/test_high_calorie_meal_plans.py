@@ -1,3 +1,4 @@
+from datetime import time
 from uuid import UUID
 
 import pytest
@@ -21,25 +22,38 @@ def high_calorie_user(meal_plan_db, seeded_schedule_catalog):
     return db, token, track_recipe
 
 
-@pytest.mark.parametrize("count,meal_types,times", [
-    (2, ["breakfast", "dinner"], ["12:00:00", "01:00:00"]),
-    (3, ["breakfast", "lunch", "dinner"], ["12:00:00", "18:30:00", "01:00:00"]),
-    (4, ["breakfast", "lunch", "pre_workout", "dinner"], ["12:00:00", "16:20:00", "20:40:00", "01:00:00"]),
+@pytest.mark.parametrize("count,meal_types,times,without_blender", [
+    (2, ["breakfast", "dinner"], ["12:00:00", "01:00:00"], False),
+    (3, ["breakfast", "lunch", "dinner"], ["12:00:00", "18:30:00", "01:00:00"], False),
+    (4, ["breakfast", "lunch", "pre_workout", "dinner"], ["12:00:00", "16:20:00", "20:40:00", "01:00:00"], False),
     (5, ["breakfast", "lunch", "snack", "pre_workout", "dinner"],
-     ["12:00:00", "15:15:00", "18:30:00", "21:45:00", "01:00:00"]),
+     ["12:00:00", "15:15:00", "18:30:00", "21:45:00", "01:00:00"], False),
+    pytest.param(5, ["breakfast", "lunch", "snack", "pre_workout", "dinner"],
+                 ["12:00:00", "15:15:00", "18:30:00", "21:45:00", "01:00:00"], True,
+                 id="five-meals-without-blender"),
 ])
-def test_real_seeded_catalog_generates_3719_kcal_with_profile_meal_count(high_calorie_user, count, meal_types, times):
+def test_real_seeded_catalog_generates_3719_kcal_with_profile_meal_count(
+    high_calorie_user, count, meal_types, times, without_blender, record_property,
+):
     db, token, track_recipe = high_calorie_user
-    updated = request("PATCH", "/users/profile", token, {"meals_per_day": count})
+    changes = {"meals_per_day": count}
+    if without_blender:
+        changes["equipment"] = ["stovetop", "oven", "air_fryer", "microwave", "slow_cooker"]
+    updated = request("PATCH", "/users/profile", token, changes)
     assert updated.status_code == 200, updated.text
+    if without_blender:
+        assert "blender" not in updated.json()["equipment"]
     created = request("POST", "/meal-plans", token, {"plan_date": "2026-11-02"})
     assert created.status_code == 201, created.text
     plan = created.json()
     assert plan["targets"]["calories"] == pytest.approx(3719)
     assert 0.95 * 3719 <= plan["daily_totals"]["calories"] <= 1.05 * 3719
+    record_property("daily_calories", plan["daily_totals"]["calories"])
     assert [meal["meal_type"] for meal in plan["meals"]] == meal_types
     assert [meal["scheduled_time"] for meal in plan["meals"]] == times
     assert len({meal["recipe_id"] for meal in plan["meals"]}) == count
+    if count == 5:
+        assert plan["meals"][2]["recipe_id"] != plan["meals"][3]["recipe_id"]
     if count <= 3:
         assert any(meal["servings"] > 2 for meal in plan["meals"])
     for meal in plan["meals"]:
@@ -47,6 +61,9 @@ def test_real_seeded_catalog_generates_3719_kcal_with_profile_meal_count(high_ca
         assert meal["servings"] * 4 == int(meal["servings"] * 4)
         stored = db.get(MealPlanItem, UUID(meal["id"]))
         assert stored.servings == meal["servings"]
+        assert stored.scheduled_time == time.fromisoformat(meal["scheduled_time"])
+        if without_blender:
+            assert "blender" not in {item.equipment for item in db.get(Recipe, stored.recipe_id).equipment}
         expected_quantities = {}
         for ingredient in db.get(Recipe, stored.recipe_id).ingredients:
             expected_quantities[ingredient.food_id] = expected_quantities.get(ingredient.food_id, 0) + float(ingredient.quantity_grams) * stored.servings

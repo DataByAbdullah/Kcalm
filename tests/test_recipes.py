@@ -10,7 +10,8 @@ from app.core.database import SessionLocal, engine
 from app.core.enums import FoodSource
 from app.main import app
 from app.models.food import Food, FoodNutrient
-from app.models.recipe import Recipe
+from app.models.recipe import Recipe, RecipeTag, RecipeTagLink
+from app.scripts import seed_recipes
 from app.models.user import User
 from tests.admin_helpers import promote_admin
 from app.seed_data.recipes import DEV_RECIPE_SEED_DATA, DEV_RECIPE_SEED_SOURCE
@@ -552,3 +553,39 @@ def test_development_recipe_seed_data_is_idempotent(recipe_db) -> None:
     assert first_result.total == len(DEV_RECIPE_SEED_DATA)
     assert second_result.total == len(DEV_RECIPE_SEED_DATA)
     assert seeded_count >= len(DEV_RECIPE_SEED_DATA)
+
+
+def test_seed_command_updates_existing_recipes_with_authored_snack_tags(recipe_db, capsys) -> None:
+    db, _, _, _ = recipe_db
+    seed_development_recipes(db)
+    authored = {
+        item["name"]: set(item["tags"]) for item in DEV_RECIPE_SEED_DATA
+        if {"snack", "pre_workout"}.issubset(item["tags"])
+    }
+    recipes = db.query(Recipe).filter(
+        Recipe.source == DEV_RECIPE_SEED_SOURCE, Recipe.name.in_(authored), Recipe.active.is_(True),
+    ).all()
+    original_ids = {recipe.name: recipe.id for recipe in recipes}
+    assert len(original_ids) == 3
+    snack_tag = db.query(RecipeTag).filter_by(name="snack").one()
+    # Simulate an already-seeded deployment before the additional snack tags.
+    db.query(RecipeTagLink).filter(
+        RecipeTagLink.recipe_id.in_(original_ids.values()), RecipeTagLink.tag_id == snack_tag.id,
+    ).delete(synchronize_session=False)
+    db.commit()
+    db.expire_all()
+    assert all("snack" not in {link.tag.name for link in recipe.tag_links} for recipe in recipes)
+
+    try:
+        seed_recipes.main()
+        assert "inserted=0, updated=41, total=41" in capsys.readouterr().out
+        db.expire_all()
+        for name, recipe_id in original_ids.items():
+            recipe = db.get(Recipe, recipe_id)
+            assert recipe.name == name
+            assert {link.tag.name for link in recipe.tag_links} == authored[name]
+        assert db.query(Recipe).filter_by(source=DEV_RECIPE_SEED_SOURCE, active=True).count() == 41
+    finally:
+        # Restore the catalog even if command verification fails.
+        db.rollback()
+        seed_development_recipes(db)

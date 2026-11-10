@@ -134,12 +134,91 @@ def test_unrelated_profile_and_full_name_updates_preserve_generated_plan(schedul
     _, token = scheduled_user
     original = generate_plan(token)
     for endpoint, changes in (
-        ("/users/profile", {"weight_kg": 80, "max_cooking_minutes": 45}),
+        ("/users/profile", {"target_weight_kg": 75}),
         ("/users/me", {"full_name": "Updated Name"}),
     ):
         response = request("PATCH", endpoint, token, changes)
         assert response.status_code == 200, response.text
         assert get_plan(token, original) == original
+
+
+@pytest.mark.parametrize("changes", [
+    {"age": 30},
+    {"sex": "female"},
+    {"height_cm": 180},
+    {"weight_kg": 80},
+    {"activity_level": "very_active"},
+    {"goal": "maintenance"},
+    {"target_rate": 0.25},
+    {"max_cooking_minutes": 20},
+    {"equipment": ["stovetop"]},
+    {"dietary_restrictions": ["dairy_free"]},
+    {"allergies": ["milk"]},
+    {"disliked_foods": ["banana"]},
+    {"preferred_foods": ["spinach"]},
+])
+def test_actual_nutrition_or_candidate_input_change_archives_today(scheduled_user, changes):
+    db, token = scheduled_user
+    original = generate_plan(token)
+
+    response = request("PATCH", "/users/profile", token, changes)
+
+    assert response.status_code == 200, response.text
+    for field, value in changes.items():
+        assert response.json()[field] == value
+    assert_archived_snapshot(db, token, original)
+
+
+def test_unchanged_nutrition_and_constraint_scalars_preserve_plan(scheduled_user):
+    _, token = scheduled_user
+    original = generate_plan(token)
+    profile = request("GET", "/users/profile", token).json()
+    same_values = {field: profile[field] for field in (
+        "age", "sex", "height_cm", "weight_kg", "activity_level", "goal", "target_rate", "max_cooking_minutes",
+    )}
+
+    response = request("PATCH", "/users/profile", token, same_values)
+
+    assert response.status_code == 200, response.text
+    assert get_plan(token, original) == original
+
+
+@pytest.mark.parametrize("field,values", [
+    ("equipment", ["stovetop", "blender", "oven"]),
+    ("allergies", ["peanuts", "shellfish"]),
+    ("dietary_restrictions", ["dairy_free", "gluten_free"]),
+    ("disliked_foods", ["tofu", "beans"]),
+    ("preferred_foods", ["spinach", "banana"]),
+])
+def test_unchanged_normalized_lists_preserve_plan(scheduled_user, field, values):
+    db, token = scheduled_user
+    assert request("PATCH", "/users/profile", token, {field: values}).status_code == 200
+    if field == "disliked_foods":
+        user_id = UUID(request("GET", "/auth/me", token).json()["id"])
+        # Legacy stored text must be normalized on both sides of the comparison.
+        for item in db.get(User, user_id).disliked_foods:
+            item.name = f"  {item.name.upper()}  "
+        db.commit()
+    original = generate_plan(token)
+    same_values = [f"  {value.upper()}  " for value in reversed(values)] + [values[0], " "]
+
+    response = request("PATCH", "/users/profile", token, {field: same_values})
+
+    assert response.status_code == 200, response.text
+    assert response.json()[field] == sorted(values)
+    assert get_plan(token, original) == original
+
+
+def test_clearing_a_constraint_list_archives_plan(scheduled_user):
+    db, token = scheduled_user
+    assert request("PATCH", "/users/profile", token, {"allergies": ["peanuts"]}).status_code == 200
+    original = generate_plan(token)
+
+    response = request("PATCH", "/users/profile", token, {"allergies": None})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["allergies"] == []
+    assert_archived_snapshot(db, token, original)
 
 
 def test_invalid_schedule_update_preserves_profile_and_plan(scheduled_user):
@@ -176,7 +255,8 @@ def test_invalidation_uses_updated_timezone_across_utc_date_boundary(
     assert_archived_snapshot(db, token, future)
 
 
-def test_overlapping_week_archives_without_changing_historical_children(scheduled_user):
+@pytest.mark.parametrize("changes", [{"meals_per_day": 3}, {"equipment": ["stovetop"]}, {"weight_kg": 80}])
+def test_overlapping_week_archives_without_changing_historical_children(scheduled_user, changes):
     db, token = scheduled_user
     response = request("POST", "/weekly-meal-plans", token, {"start_date": (TODAY - timedelta(days=3)).isoformat()})
     assert response.status_code == 201, response.text
@@ -189,7 +269,7 @@ def test_overlapping_week_archives_without_changing_historical_children(schedule
     path = f"/weekly-meal-plans/{original_week['weekly_plan_id']}"
     assert request("GET", path, token).json() == original_week
 
-    updated = request("PATCH", "/users/profile", token, {"meals_per_day": 3})
+    updated = request("PATCH", "/users/profile", token, changes)
 
     assert updated.status_code == 200, updated.text
     db.expire_all()
@@ -250,11 +330,20 @@ def test_schedule_change_does_not_invalidate_another_users_plans(scheduled_user,
     assert db.get(WeeklyMealPlan, other_week_id).status == "generated"
 
 
-def test_invalidation_failure_rolls_back_profile_and_plan_changes(scheduled_user, monkeypatch):
+@pytest.mark.parametrize("changes", [
+    {"meals_per_day": 3},
+    {"weight_kg": 90, "equipment": ["stovetop"], "allergies": ["milk"]},
+])
+def test_invalidation_failure_rolls_back_profile_and_plan_changes(scheduled_user, monkeypatch, changes):
     db, token = scheduled_user
     original = generate_plan(token)
     plan = db.get(MealPlan, UUID(original["meal_plan_id"]))
-    user = db.get(User, plan.user_id)
+    profile = request("GET", "/users/profile", token).json()
+    week = WeeklyMealPlan(user_id=plan.user_id, start_date=TODAY,
+                          end_date=TODAY + timedelta(days=6), status="generated")
+    db.add(week)
+    db.commit()
+    week_id = week.id
     invalidate = user_profile_service.invalidate_future_meal_plans
 
     def fail_after_invalidation(*args, **kwargs):
@@ -263,8 +352,9 @@ def test_invalidation_failure_rolls_back_profile_and_plan_changes(scheduled_user
 
     monkeypatch.setattr(user_profile_service, "invalidate_future_meal_plans", fail_after_invalidation)
     with pytest.raises(RuntimeError, match="Simulated transaction failure"):
-        request("PATCH", "/users/profile", token, {"meals_per_day": 3})
+        request("PATCH", "/users/profile", token, changes)
 
     db.expire_all()
-    assert user.profile.meals_per_day == 4
+    assert request("GET", "/users/profile", token).json() == profile
+    assert db.get(WeeklyMealPlan, week_id).status == "generated"
     assert get_plan(token, original) == original

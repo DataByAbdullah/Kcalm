@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import UTC, date, datetime, time
 from uuid import UUID
 
 import pytest
@@ -6,6 +6,7 @@ import pytest
 from app.models.meal_plan import MealPlan, MealPlanItem
 from app.meal_planning.solver import MAX_SERVING_AMOUNT, SolverNutritionTargets
 from app.services.recipe_seed_service import seed_development_recipes
+from app.services import meal_plan_service
 from tests.test_auth import auth_db
 from tests.test_meal_plan_persistence import create_profile, register_and_login, unique_email
 from tests.test_weight_logs import request
@@ -25,6 +26,37 @@ def plan_user(auth_db, seeded_schedule_catalog):
     create_profile(token, meals_per_day=4, usual_wake_time="11:00", usual_sleep_time="03:00",
                    timezone="Asia/Karachi", equipment=["stovetop", "oven", "blender", "air_fryer", "microwave", "slow_cooker"])
     return db, token
+
+
+@pytest.mark.parametrize("instant,timezone,local_today", [
+    (datetime(2026, 11, 6, 23, 30, tzinfo=UTC), "Asia/Karachi", date(2026, 11, 7)),
+    (datetime(2026, 11, 6, 1, 30, tzinfo=UTC), "America/Los_Angeles", date(2026, 11, 5)),
+])
+@pytest.mark.parametrize("explicit_date", [None, date(2026, 10, 20)])
+def test_creation_date_uses_saved_timezone_only_when_date_omitted(
+    plan_user, monkeypatch, instant, timezone, local_today, explicit_date,
+):
+    db, token = plan_user
+    assert request("PATCH", "/users/profile", token, {"timezone": timezone}).status_code == 200
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert explicit_date is None, "Explicit plan dates must not depend on the clock."
+            assert tz.key == timezone
+            return instant.astimezone(tz)
+
+    monkeypatch.setattr(meal_plan_service, "datetime", FrozenDateTime)
+    payload = {"plan_date": explicit_date.isoformat()} if explicit_date else {}
+
+    response = request("POST", "/meal-plans", token, payload)
+
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    expected_date = explicit_date or local_today
+    assert plan["plan_date"] == expected_date.isoformat()
+    assert db.get(MealPlan, UUID(plan["meal_plan_id"])).plan_date == expected_date
+    assert request("GET", f"/meal-plans/{plan['meal_plan_id']}", token).json() == plan
 
 
 def assert_portions_and_calorie_tolerance(plan):

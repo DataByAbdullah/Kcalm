@@ -17,11 +17,17 @@ from app.schemas.user_profile import (
     UserProfileCreateRequest,
     UserProfileResponse,
     UserProfileUpdateRequest,
+    normalize_text_items,
 )
 from app.services.meal_plan_invalidation_service import invalidate_future_meal_plans
 
 
 SCHEDULE_FIELDS = {"usual_wake_time", "usual_sleep_time", "timezone", "meals_per_day"}
+
+PLAN_AFFECTING_SCALAR_FIELDS = SCHEDULE_FIELDS | {
+    "age", "sex", "height_cm", "weight_kg", "activity_level", "goal", "target_rate",
+    "max_cooking_minutes",
+}
 
 
 SCALAR_PROFILE_FIELDS = {
@@ -162,9 +168,15 @@ def update_profile(
     sleep_time = payload.usual_sleep_time if "usual_sleep_time" in fields_set else loaded_user.profile.usual_sleep_time
     if wake_time == sleep_time:
         raise APIErrorException(422, "INVALID_PROFILE_DATA", "Wake and sleep times must be different.")
-    schedule_changed = any(
+    plan_inputs_changed = any(
         getattr(loaded_user.profile, field_name) != getattr(payload, field_name)
-        for field_name in SCHEDULE_FIELDS.intersection(fields_set)
+        for field_name in PLAN_AFFECTING_SCALAR_FIELDS.intersection(fields_set)
+    ) or any(
+        set(normalize_text_items([
+            getattr(item, LIST_RELATIONSHIPS[field_name][1])
+            for item in getattr(loaded_user, field_name)
+        ])) != set(normalize_text_items(getattr(payload, field_name)))
+        for field_name in LIST_RELATIONSHIPS.keys() & fields_set
     )
     try:
         for field_name in SCALAR_PROFILE_FIELDS.intersection(fields_set):
@@ -174,7 +186,7 @@ def update_profile(
             if field_name in fields_set:
                 _replace_list(db, user.id, field_name, getattr(payload, field_name) or [])
 
-        if schedule_changed:
+        if plan_inputs_changed:
             invalidate_future_meal_plans(db, user.id, loaded_user.profile.timezone)
 
         db.commit()

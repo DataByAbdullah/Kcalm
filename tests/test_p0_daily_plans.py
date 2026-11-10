@@ -8,11 +8,13 @@ from app.core.database import SessionLocal
 from app.models.food import Food
 from app.models.meal_plan import MealPlanItem
 from app.models.recipe import Recipe
+from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE, calculate_recipe_nutrients
 from app.schemas.meal_plan import MealPlanCreateRequest, MealSlotRequest
 from app.seed_data.allergen_reviews import DEV_FOOD_ALLERGEN_REVIEWS
 from app.seed_data.recipes import DEV_RECIPE_SEED_DATA, DEV_RECIPE_SEED_SOURCE
 from app.services.recipe_seed_service import seed_development_recipes
+from app.services.recipe_candidate_service import get_recipe_candidates
 from tests.test_meal_plan_persistence import (
     api_request, auth_headers, create_plan, create_profile, create_recipe,
     get_plan, meal_plan_db, recipe_payload, register_and_login, run_async, unique_email,
@@ -88,7 +90,42 @@ def test_catalog_counts_explicit_diets_equipment_and_instructions():
                 assert not foods & {"dev_egg", "dev_milk", "dev_greek_yogurt", "dev_salmon", "dev_chicken_breast"}
             if "pescatarian" in item["tags"]:
                 assert "dev_chicken_breast" not in foods
-    assert sum("snack" in item["tags"] for item in DEV_RECIPE_SEED_DATA) == 1
+    assert sum("snack" in item["tags"] for item in DEV_RECIPE_SEED_DATA) == 4
+
+
+def test_seeded_snacks_offer_multiple_eligible_options_without_a_blender(p0_user):
+    db, token, _, _ = p0_user
+    user = db.get(User, UUID(request("GET", "/auth/me", token).json()["id"]))
+    candidates = get_recipe_candidates(db, user, meal_type="snack", require_complete_nutrition=True)
+
+    assert candidates.total_eligible >= 3
+    assert all("blender" not in item.required_equipment for item in candidates.candidates)
+    assert any(not item.required_equipment for item in candidates.candidates)
+    assert any("stovetop" in item.required_equipment for item in candidates.candidates)
+    for candidate in candidates.candidates:
+        assert {"snack", "dairy_free", "gluten_free"}.issubset(candidate.tags)
+        assert candidate.nutrition_complete
+        assert candidate.total_time_minutes <= 20
+
+
+def test_truly_missing_snack_preserves_structural_infeasibility_reason(p0_user):
+    db, token, _, _ = p0_user
+    updated = request("PATCH", "/users/profile", token, {
+        "meals_per_day": 5, "disliked_foods": ["banana", "oats", "potato"],
+    })
+    assert updated.status_code == 200, updated.text
+    preview = request("POST", "/recipes/candidates/preview", token, {"meal_type": "snack"})
+    assert preview.status_code == 200 and preview.json()["candidates"] == []
+
+    response = request("POST", "/meal-plans", token, {"plan_date": "2026-11-06"})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "MEAL_PLAN_INFEASIBLE"
+    reasons = response.json()["error"]["details"]["infeasibility_reasons"]
+    assert "missing_meal_slot_candidate:snack" in reasons
+    assert "calorie_target_outside_allowed_tolerance" not in reasons
+    user_id = UUID(request("GET", "/auth/me", token).json()["id"])
+    assert db.get(User, user_id).meal_plans == []
 
 
 def test_seed_reviews_and_complete_nutrition_are_persisted_and_repeatable(meal_plan_db, catalog):

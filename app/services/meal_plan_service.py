@@ -1,5 +1,6 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
@@ -31,6 +32,7 @@ from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.schemas.meal_plan import MealPlanCreateRequest
 from app.services.meal_solver_service import solve_daily_plan_preview
+from app.services.user_profile_service import get_profile
 
 
 def plan_not_found_error() -> APIErrorException:
@@ -59,8 +61,8 @@ def infeasible_plan_error(result: DailyPlanSolverResult) -> APIErrorException:
     )
 
 
-def current_plan_date() -> date:
-    return datetime.now(timezone.utc).date()
+def current_plan_date(timezone: str) -> date:
+    return datetime.now(ZoneInfo(timezone)).date()
 
 
 def create_daily_meal_plan(
@@ -73,7 +75,7 @@ def create_daily_meal_plan(
     additional_excluded_recipe_ids: list[UUID] | None = None,
     target_override: SolverNutritionTargets | None = None,
 ) -> MealPlan:
-    plan_date = payload.plan_date or current_plan_date()
+    plan_date = payload.plan_date or current_plan_date(get_profile(db=db, user=user).timezone)
     ensure_no_generated_plan_for_date(db=db, user_id=user.id, plan_date=plan_date)
 
     solver_payload = payload_with_additional_exclusions(

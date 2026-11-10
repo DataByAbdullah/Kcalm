@@ -50,13 +50,16 @@ def solve_daily_plan_preview(
         required_tags=payload.required_tags,
         excluded_tags=payload.excluded_tags,
     )
-    solver_config = SolverConfig(
-        time_limit_seconds=payload.solver_time_limit_seconds or SolverConfig().time_limit_seconds
-    )
     meal_slots = [
         MealSlot(meal_type=slot.meal_type, required=slot.required)
         for slot in payload.meal_slots
     ] if payload.meal_slots is not None else default_meal_slots(profile.meals_per_day)
+    # The expanded snack catalog makes five required slots a larger model;
+    # use the existing API maximum budget without changing solver constraints.
+    default_time_limit = 5.0 if sum(slot.required for slot in meal_slots) == 5 else SolverConfig().time_limit_seconds
+    solver_config = SolverConfig(
+        time_limit_seconds=payload.solver_time_limit_seconds or default_time_limit
+    )
 
     try:
         result = solve_daily_plan(
