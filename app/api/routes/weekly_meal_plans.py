@@ -23,6 +23,7 @@ from app.services.grocery_service import (
     create_grocery_list_from_weekly_plan,
     get_weekly_grocery_preview,
 )
+from app.services.meal_plan_consumption_service import release_planning_reads
 from app.services.weekly_plan_service import (
     archive_weekly_plan,
     create_weekly_plan,
@@ -67,6 +68,7 @@ def create_weekly_meal_plan(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> WeeklyMealPlanResponse:
+    release_planning_reads(db, current_user)
     week = create_weekly_plan(db=db, user=current_user, payload=payload)
     return weekly_plan_to_response(week)
 

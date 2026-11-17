@@ -66,6 +66,7 @@ from app.services.meal_plan_service import (
 )
 from app.services.meal_solver_service import solve_daily_plan_preview
 from app.services.recipe_service import recipe_image_urls
+from app.services.meal_plan_consumption_service import release_planning_reads
 from app.services.meal_swap_service import swap_meal_plan_item
 
 
@@ -376,6 +377,7 @@ def create_meal_plan(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MealPlanResponse:
+    release_planning_reads(db, current_user)
     plan = create_daily_meal_plan(db=db, user=current_user, payload=payload)
     return plan_to_response(plan)
 
@@ -459,6 +461,7 @@ def generate_adaptive_next_day(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AdaptivePlanResponse:
+    release_planning_reads(db, current_user)
     creation = create_adaptive_next_day_plan(
         db=db,
         user=current_user,
@@ -519,6 +522,7 @@ def swap_meal_plan_item_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MealPlanResponse:
+    release_planning_reads(db, current_user)
     plan = swap_meal_plan_item(
         db=db,
         user=current_user,
@@ -540,6 +544,7 @@ def ai_swap_meal_plan_item_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MealPlanResponse:
+    release_planning_reads(db, current_user)
     plan = swap_meal_plan_item_from_text(
         db=db,
         user=current_user,

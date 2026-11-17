@@ -15,6 +15,7 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
+    isolation_level="READ COMMITTED",
 )
 
 SessionLocal = sessionmaker(

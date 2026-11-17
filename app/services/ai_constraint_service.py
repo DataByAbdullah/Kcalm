@@ -21,6 +21,7 @@ from app.schemas.ai import (
     ResolvedAvoidFoodResponse,
 )
 from app.schemas.meal_plan import MealSwapRequest
+from app.services.meal_plan_consumption_service import ensure_item_has_no_consumption, planning_snapshot
 from app.services.meal_plan_service import get_meal_plan_detail
 from app.services.meal_swap_service import item_for_swap, swap_meal_plan_item
 from app.services.recipe_candidate_service import CandidateFilterResult, get_recipe_candidates
@@ -355,15 +356,18 @@ def swap_meal_plan_item_from_text(
     text: str,
     interpreter: AIConstraintInterpreter | None = None,
 ) -> MealPlan:
-    plan = get_meal_plan_detail(db=db, user=user, meal_plan_id=meal_plan_id)
-    target_item = item_for_swap(plan=plan, meal_plan_item_id=meal_plan_item_id)
-    interpreted = interpret_natural_language_constraints(
-        db=db,
-        user=user,
-        text=text,
-        context_meal_type=target_item.meal_type,
-        interpreter=interpreter,
-    )
+    with planning_snapshot(db) as snapshot:
+        plan = get_meal_plan_detail(db=snapshot, user=user, meal_plan_id=meal_plan_id)
+        target_item = item_for_swap(plan=plan, meal_plan_item_id=meal_plan_item_id)
+        # Fail before an external interpretation call; the swap rechecks under lock.
+        ensure_item_has_no_consumption(snapshot, target_item.id)
+        interpreted = interpret_natural_language_constraints(
+            db=snapshot,
+            user=user,
+            text=text,
+            context_meal_type=target_item.meal_type,
+            interpreter=interpreter,
+        )
     constraints = interpreted.constraints
     if constraints.clarification_required:
         raise ai_clarification_required_error(constraints.clarification_question)

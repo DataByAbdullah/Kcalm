@@ -16,6 +16,7 @@ from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.nutrition.micronutrients import SUPPORTED_NUTRIENT_CODES
 from app.schemas.meal_log import MealLogRequest
 from app.services.food_service import food_not_found_error
+from app.services.meal_plan_consumption_service import lock_user_meal_plans
 from app.services.meal_plan_service import (
     daily_totals_from_plan,
     get_meal_plan_detail,
@@ -88,6 +89,7 @@ def log_meal_plan_item(
     meal_plan_item_id: UUID,
     payload: MealLogRequest,
 ) -> MealLog:
+    lock_user_meal_plans(db, user.id)
     plan = get_meal_plan_detail(db=db, user=user, meal_plan_id=meal_plan_id)
     ensure_plan_can_be_logged(plan)
     item = item_for_log(plan=plan, meal_plan_item_id=meal_plan_item_id)
@@ -129,6 +131,7 @@ def reset_meal_plan_item_log(
     meal_plan_id: UUID,
     meal_plan_item_id: UUID,
 ) -> None:
+    lock_user_meal_plans(db, user.id)
     plan = get_meal_plan_detail(db=db, user=user, meal_plan_id=meal_plan_id)
     ensure_plan_can_be_logged(plan)
     item = item_for_log(plan=plan, meal_plan_item_id=meal_plan_item_id)

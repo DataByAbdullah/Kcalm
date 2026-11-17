@@ -1,11 +1,13 @@
+from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import MealPlanStatus
+from app.core.enums import MealPlanStatus, WeeklyMealPlanStatus
 from app.core.exceptions import APIErrorException
 from app.meal_planning.scaling import scale_amount, unscale_amount
 from app.meal_planning.solver import (
@@ -26,11 +28,19 @@ from app.models.meal_plan import (
     MealPlanItemIngredientSnapshot,
     MealPlanItemNutrientSnapshot,
     MealPlanMicronutrientTargetSnapshot,
+    WeeklyMealPlan,
 )
 from app.models.recipe import Recipe, RecipeIngredient
 from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.schemas.meal_plan import MealPlanCreateRequest
+from app.schemas.user_profile import UserProfileResponse
+from app.services.meal_plan_consumption_service import (
+    ensure_dates_have_no_consumption,
+    lock_user_meal_plans,
+    planning_inputs_changed_error,
+    planning_snapshot,
+)
 from app.services.meal_solver_service import raise_on_solver_timeout, solve_daily_plan_preview
 from app.services.user_profile_service import get_profile
 
@@ -65,6 +75,44 @@ def current_plan_date(timezone: str) -> date:
     return datetime.now(ZoneInfo(timezone)).date()
 
 
+@dataclass(frozen=True)
+class PreparedMealPlan:
+    plan_date: date
+    result: DailyPlanSolverResult
+    profile: UserProfileResponse
+    ingredients: dict[UUID, tuple[tuple[UUID, str, float], ...]]
+
+
+def prepare_daily_meal_plan(
+    db: Session,
+    user: User,
+    payload: MealPlanCreateRequest,
+    *,
+    additional_excluded_recipe_ids: list[UUID] | None = None,
+    target_override: SolverNutritionTargets | None = None,
+) -> PreparedMealPlan:
+    """Call in a planning snapshot; eligibility is checked again before saving."""
+    profile = get_profile(db=db, user=user)
+    plan_date = payload.plan_date or current_plan_date(profile.timezone)
+    ensure_no_generated_plan_for_date(db=db, user_id=user.id, plan_date=plan_date)
+    ensure_dates_have_no_consumption(db, user.id, plan_date, plan_date)
+    solver_payload = payload_with_additional_exclusions(
+        payload=payload,
+        additional_excluded_recipe_ids=additional_excluded_recipe_ids or [],
+    )
+    result = solve_daily_plan_preview(db=db, user=user, payload=solver_payload, target_override=target_override)
+    raise_on_solver_timeout(result)
+    if result.status is SolverStatus.INFEASIBLE:
+        raise infeasible_plan_error(result)
+    ingredients = load_recipe_ingredients(db, [meal.recipe_id for meal in result.meals])
+    return PreparedMealPlan(plan_date, result, profile, ingredients)
+
+
+def ensure_profile_unchanged(db: Session, user: User, expected: UserProfileResponse) -> None:
+    if get_profile(db=db, user=user) != expected:
+        raise planning_inputs_changed_error()
+
+
 def create_daily_meal_plan(
     db: Session,
     user: User,
@@ -75,23 +123,32 @@ def create_daily_meal_plan(
     additional_excluded_recipe_ids: list[UUID] | None = None,
     target_override: SolverNutritionTargets | None = None,
 ) -> MealPlan:
-    plan_date = payload.plan_date or current_plan_date(get_profile(db=db, user=user).timezone)
-    ensure_no_generated_plan_for_date(db=db, user_id=user.id, plan_date=plan_date)
+    with planning_snapshot(db) as snapshot:
+        prepared = prepare_daily_meal_plan(
+            snapshot, user, payload,
+            additional_excluded_recipe_ids=additional_excluded_recipe_ids,
+            target_override=target_override,
+        )
+    lock_user_meal_plans(db, user.id)
+    ensure_no_generated_plan_for_date(db=db, user_id=user.id, plan_date=prepared.plan_date)
+    ensure_dates_have_no_consumption(db, user.id, prepared.plan_date, prepared.plan_date)
+    ensure_profile_unchanged(db, user, prepared.profile)
+    if payload.plan_date is None and current_plan_date(prepared.profile.timezone) != prepared.plan_date:
+        raise planning_inputs_changed_error()
+    return persist_prepared_daily_plan(db, user, prepared, commit=commit, weekly_plan_id=weekly_plan_id)
 
-    solver_payload = payload_with_additional_exclusions(
-        payload=payload,
-        additional_excluded_recipe_ids=additional_excluded_recipe_ids or [],
-    )
-    solver_result = solve_daily_plan_preview(
-        db=db,
-        user=user,
-        payload=solver_payload,
-        target_override=target_override,
-    )
-    raise_on_solver_timeout(solver_result)
-    if solver_result.status is SolverStatus.INFEASIBLE:
-        raise infeasible_plan_error(solver_result)
 
+def persist_prepared_daily_plan(
+    db: Session,
+    user: User,
+    prepared: PreparedMealPlan,
+    *,
+    commit: bool = True,
+    weekly_plan_id: UUID | None = None,
+) -> MealPlan:
+    """Persist an already solved day after the caller locks and revalidates it."""
+    solver_result = prepared.result
+    plan_date = prepared.plan_date
     plan = MealPlan(
         user_id=user.id,
         weekly_plan_id=weekly_plan_id,
@@ -112,7 +169,8 @@ def create_daily_meal_plan(
         db.add(plan)
         db.flush()
         persist_target_snapshots(db=db, plan=plan, solver_result=solver_result)
-        persist_meal_plan_items(db=db, plan=plan, solver_result=solver_result)
+        persist_meal_plan_items(db=db, plan=plan, solver_result=solver_result, ingredients=prepared.ingredients)
+        db.flush()
         if commit:
             db.commit()
     except IntegrityError as exc:
@@ -128,9 +186,6 @@ def create_daily_meal_plan(
     except Exception:
         db.rollback()
         raise
-
-    if not commit:
-        return get_meal_plan_detail(db=db, user=user, meal_plan_id=plan.id)
 
     return get_meal_plan_detail(db=db, user=user, meal_plan_id=plan.id)
 
@@ -191,6 +246,7 @@ def persist_meal_plan_items(
     db: Session,
     plan: MealPlan,
     solver_result: DailyPlanSolverResult,
+    ingredients: dict[UUID, tuple[tuple[UUID, str, float], ...]],
 ) -> None:
     for position, meal in enumerate(solver_result.meals, start=1):
         item = MealPlanItem(
@@ -223,7 +279,35 @@ def persist_meal_plan_items(
             item=item,
             recipe_id=meal.recipe_id,
             servings=meal.serving_amount,
+            ingredients=ingredients[meal.recipe_id],
         )
+
+
+def load_recipe_ingredients(
+    db: Session, recipe_ids: list[UUID],
+) -> dict[UUID, tuple[tuple[UUID, str, float], ...]]:
+    """Freeze ingredient inputs in the same read snapshot as nutrient inputs."""
+    recipes = db.query(Recipe).options(
+        selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+    ).filter(Recipe.id.in_(recipe_ids)).all()
+    values = {}
+    for recipe in recipes:
+        if any(ingredient.food is None for ingredient in recipe.ingredients):
+            raise APIErrorException(
+                500, "MEAL_PLAN_INGREDIENT_SNAPSHOT_FAILED", "Meal plan ingredient snapshots could not be created.",
+                details={"recipe_id": str(recipe.id), "reason": "ingredient_food_not_found"},
+            )
+        values[recipe.id] = tuple(
+            (ingredient.food_id, ingredient.food.name, float(ingredient.quantity_grams))
+            for ingredient in recipe.ingredients
+        )
+    missing = set(recipe_ids) - values.keys()
+    if missing:
+        raise APIErrorException(
+            500, "MEAL_PLAN_INGREDIENT_SNAPSHOT_FAILED", "Meal plan ingredient snapshots could not be created.",
+            details={"recipe_id": str(sorted(missing, key=str)[0]), "reason": "recipe_not_found"},
+        )
+    return values
 
 
 def persist_item_ingredient_snapshots(
@@ -231,51 +315,20 @@ def persist_item_ingredient_snapshots(
     item: MealPlanItem,
     recipe_id: UUID,
     servings: float,
+    *,
+    ingredients: tuple[tuple[UUID, str, float], ...],
 ) -> None:
-    recipe = (
-        db.query(Recipe)
-        .options(selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food))
-        .filter(Recipe.id == recipe_id)
-        .one_or_none()
-    )
-    if recipe is None:
-        raise APIErrorException(
-            status_code=500,
-            code="MEAL_PLAN_INGREDIENT_SNAPSHOT_FAILED",
-            message="Meal plan ingredient snapshots could not be created.",
-            details={"recipe_id": str(recipe_id), "reason": "recipe_not_found"},
-        )
-
     quantities_by_food_id: dict[UUID, int] = {}
     food_names_by_id: dict[UUID, str] = {}
-    for ingredient in recipe.ingredients:
-        if ingredient.food is None:
-            raise APIErrorException(
-                status_code=500,
-                code="MEAL_PLAN_INGREDIENT_SNAPSHOT_FAILED",
-                message="Meal plan ingredient snapshots could not be created.",
-                details={
-                    "recipe_id": str(recipe_id),
-                    "ingredient_id": str(ingredient.id),
-                    "reason": "ingredient_food_not_found",
-                },
-            )
-        quantity_grams = float(ingredient.quantity_grams) * servings
-        food_id = ingredient.food_id
-        quantities_by_food_id[food_id] = quantities_by_food_id.get(food_id, 0) + scale_amount(
-            quantity_grams
-        )
-        food_names_by_id[food_id] = ingredient.food.name
-
+    for food_id, name, quantity in ingredients:
+        quantities_by_food_id[food_id] = quantities_by_food_id.get(food_id, 0) + scale_amount(quantity * servings)
+        food_names_by_id[food_id] = name
     for food_id in sorted(quantities_by_food_id, key=str):
-        db.add(
-            MealPlanItemIngredientSnapshot(
-                meal_plan_item_id=item.id,
-                food_id=food_id,
-                food_name_snapshot=food_names_by_id[food_id],
-                quantity_grams=unscale_amount(quantities_by_food_id[food_id]),
-            )
-        )
+        db.add(MealPlanItemIngredientSnapshot(
+            meal_plan_item_id=item.id, food_id=food_id,
+            food_name_snapshot=food_names_by_id[food_id],
+            quantity_grams=unscale_amount(quantities_by_food_id[food_id]),
+        ))
 
 
 def get_meal_plan_detail(
@@ -292,6 +345,7 @@ def get_meal_plan_detail(
             selectinload(MealPlan.micronutrient_targets),
         )
         .filter(MealPlan.id == meal_plan_id, MealPlan.user_id == user.id)
+        .populate_existing()
         .one_or_none()
     )
     if plan is None:
@@ -329,10 +383,31 @@ def archive_meal_plan(
     user: User,
     meal_plan_id: UUID,
 ) -> None:
+    lock_user_meal_plans(db, user.id)
     plan = get_meal_plan_detail(db=db, user=user, meal_plan_id=meal_plan_id)
     if plan.status != MealPlanStatus.ARCHIVED.value:
+        ensure_dates_have_no_consumption(
+            db, user.id, plan.plan_date, plan.plan_date,
+            details={"meal_plan_id": str(plan.id)},
+        )
+        weeks = db.query(WeeklyMealPlan).filter(
+            WeeklyMealPlan.user_id == user.id,
+            or_(
+                WeeklyMealPlan.id == plan.weekly_plan_id,
+                and_(
+                    WeeklyMealPlan.status == WeeklyMealPlanStatus.GENERATED.value,
+                    WeeklyMealPlan.start_date <= plan.plan_date,
+                    WeeklyMealPlan.end_date >= plan.plan_date,
+                ),
+            ),
+        ).all()
+        for week in weeks:
+            ensure_dates_have_no_consumption(
+                db, user.id, week.start_date, week.end_date,
+                details={"meal_plan_id": str(plan.id), "weekly_plan_id": str(week.id)},
+            )
         plan.status = MealPlanStatus.ARCHIVED.value
-        db.commit()
+    db.commit()
 
 
 def daily_totals_from_plan(plan: MealPlan) -> dict[str, float]:
