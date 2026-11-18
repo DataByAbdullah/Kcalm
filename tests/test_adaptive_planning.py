@@ -479,11 +479,13 @@ def test_archived_source_plan_is_rejected(adaptive_db) -> None:
     db, track_email, _ = adaptive_db
     token, plan = create_source_plan(db, track_email, plan_date="2027-04-12")
     complete_logs_as_planned(token, plan)
-    archive = archive_plan(token, plan["meal_plan_id"])
+    # Historical archived consumption remains readable but cannot drive adaptation.
+    stored = db.get(MealPlan, UUID(plan["meal_plan_id"]))
+    stored.status = "archived"
+    db.commit()
 
     response = adaptive_preview(token, plan["meal_plan_id"])
 
-    assert archive.status_code == 204
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "MEAL_PLAN_ARCHIVED"
 

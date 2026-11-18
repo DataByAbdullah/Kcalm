@@ -579,6 +579,19 @@ def test_seeded_p0_weekly_plan_supports_four_slots_daily_lookup_logs_and_swap(we
     assert logs.json() == [logged.json()]
 
     replacement_id = sorted(recipe_ids_by_type["pre_workout"] - recipe_sets[0])[0]
+    blocked = run_async(
+        api_request(
+            "POST",
+            f"{prefix}/items/{meal['id']}/swap",
+            headers=headers,
+            json={"recipe_id": replacement_id, **candidate_filters},
+        )
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["error"]["code"] == "MEAL_PLAN_ITEM_ALREADY_LOGGED"
+    logged_meal = meal
+    meal = next(item for item in child["meals"] if item["meal_type"] == "lunch")
+    replacement_id = sorted(recipe_ids_by_type["lunch"] - recipe_sets[0])[0]
     swapped = run_async(
         api_request(
             "POST",
@@ -589,6 +602,10 @@ def test_seeded_p0_weekly_plan_supports_four_slots_daily_lookup_logs_and_swap(we
     )
     assert swapped.status_code == 200, swapped.text
     swapped_plan = swapped.json()
+    assert next(item for item in swapped_plan["meals"] if item["id"] == logged_meal["id"]) == logged_meal
+    logs = run_async(api_request("GET", f"{prefix}/logs", headers=headers))
+    assert logs.status_code == 200, logs.text
+    assert logs.json() == [logged.json()]
     assert swapped_plan["meal_plan_id"] == child["meal_plan_id"]
     assert [item["meal_type"] for item in swapped_plan["meals"]] == meal_types
     swapped_meal = next(item for item in swapped_plan["meals"] if item["id"] == meal["id"])
@@ -749,9 +766,9 @@ def test_weekly_creation_rolls_back_when_later_day_fails(weekly_db, monkeypatch)
             start_date="2026-11-02",
         )
     )
-    real_create_daily = weekly_plan_service.create_daily_meal_plan
+    real_create_daily = weekly_plan_service.prepare_daily_meal_plan
     def fail_on_fifth_day(*args, **kwargs):
-        if kwargs["payload"].plan_date == date(2026, 11, 6):
+        if args[2].plan_date == date(2026, 11, 6):
             raise APIErrorException(
                 status_code=422,
                 code="MEAL_PLAN_INFEASIBLE",
@@ -760,7 +777,7 @@ def test_weekly_creation_rolls_back_when_later_day_fails(weekly_db, monkeypatch)
             )
         return real_create_daily(*args, **kwargs)
 
-    monkeypatch.setattr(weekly_plan_service, "create_daily_meal_plan", fail_on_fifth_day)
+    monkeypatch.setattr(weekly_plan_service, "prepare_daily_meal_plan", fail_on_fifth_day)
 
     with pytest.raises(APIErrorException) as exc_info:
         create_weekly_plan(db=db, user=user, payload=payload)

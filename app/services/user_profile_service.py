@@ -19,6 +19,7 @@ from app.schemas.user_profile import (
     UserProfileUpdateRequest,
     normalize_text_items,
 )
+from app.services.meal_plan_consumption_service import lock_user_meal_plans
 from app.services.meal_plan_invalidation_service import invalidate_future_meal_plans
 
 
@@ -81,7 +82,10 @@ def _profile_not_found_error() -> APIErrorException:
 
 
 def load_user_with_profile_data(db: Session, user_id: UUID) -> User:
-    user = db.query(User).options(*USER_LOAD_OPTIONS).filter(User.id == user_id).one_or_none()
+    user = (
+        db.query(User).options(*USER_LOAD_OPTIONS).filter(User.id == user_id)
+        .populate_existing().one_or_none()
+    )
     if user is None:
         raise _profile_not_found_error()
     return user
@@ -159,6 +163,7 @@ def update_profile(
     user: User,
     payload: UserProfileUpdateRequest,
 ) -> UserProfileResponse:
+    lock_user_meal_plans(db, user.id)
     loaded_user = load_user_with_profile_data(db, user.id)
     if loaded_user.profile is None:
         raise _profile_not_found_error()

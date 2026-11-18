@@ -23,13 +23,22 @@ from app.models.meal_plan import (
 from app.models.user import User
 from app.nutrition.recipe import RECIPE_NUTRIENT_DEFINITION_BY_CODE
 from app.schemas.meal_plan import MealSwapRequest
+from app.services.meal_plan_consumption_service import (
+    ensure_item_has_no_consumption,
+    lock_user_meal_plans,
+    planning_inputs_changed_error,
+    planning_snapshot,
+)
 from app.services.meal_plan_service import (
+    ensure_profile_unchanged,
     get_meal_plan_detail,
+    load_recipe_ingredients,
     persist_item_ingredient_snapshots,
     solver_targets_from_plan,
 )
 from app.services.recipe_candidate_service import get_recipe_candidates
 from app.services.meal_solver_service import raise_on_solver_timeout
+from app.services.user_profile_service import get_profile
 
 
 def meal_plan_archived_error() -> APIErrorException:
@@ -74,49 +83,53 @@ def swap_meal_plan_item(
     payload: MealSwapRequest,
 ) -> MealPlan:
     validate_supported_swap_constraints(payload)
-    plan = get_meal_plan_detail(db=db, user=user, meal_plan_id=meal_plan_id)
-    if plan.status == MealPlanStatus.ARCHIVED.value:
-        raise meal_plan_archived_error()
+    with planning_snapshot(db) as snapshot:
+        plan = get_meal_plan_detail(db=snapshot, user=user, meal_plan_id=meal_plan_id)
+        if plan.status == MealPlanStatus.ARCHIVED.value:
+            raise meal_plan_archived_error()
 
-    target_item = item_for_swap(plan=plan, meal_plan_item_id=meal_plan_item_id)
-    locked_items = [item for item in plan.items if item.id != target_item.id]
-    targets = solver_targets_from_plan(plan)
-    target_codes = list(required_nutrient_codes(targets))
-    excluded_recipe_ids = excluded_recipe_ids_for_swap(
-        target_item=target_item,
-        locked_items=locked_items,
-        request_excluded_recipe_ids=payload.excluded_recipe_ids,
-    )
-
-    candidate_result = get_recipe_candidates(
-        db=db,
-        user=user,
-        meal_type=target_item.meal_type,
-        max_total_time_minutes=payload.max_total_time_minutes,
-        require_complete_nutrition=payload.require_complete_nutrition,
-        required_nutrient_codes=target_codes,
-        excluded_recipe_ids=excluded_recipe_ids,
-        required_tags=payload.required_tags,
-        excluded_tags=payload.excluded_tags,
-    )
-    candidates = candidate_result.candidates
-    if payload.recipe_id is not None:
-        candidates = [
-            candidate for candidate in candidates if candidate.recipe_id == payload.recipe_id
-        ]
-    if not candidates:
-        raise no_swap_candidate_error(
-            {
-                "meal_type": target_item.meal_type,
-                "exclusion_summary": {
-                    reason.value: count
-                    for reason, count in candidate_result.exclusion_summary.items()
-                },
-            }
+        target_item = item_for_swap(plan=plan, meal_plan_item_id=meal_plan_item_id)
+        ensure_item_has_no_consumption(snapshot, target_item.id)
+        locked_items = [item for item in plan.items if item.id != target_item.id]
+        targets = solver_targets_from_plan(plan)
+        target_codes = list(required_nutrient_codes(targets))
+        excluded_recipe_ids = excluded_recipe_ids_for_swap(
+            target_item=target_item,
+            locked_items=locked_items,
+            request_excluded_recipe_ids=payload.excluded_recipe_ids,
         )
 
-    solver_result = solve_daily_plan(
-        DailyPlanSolverInput(
+        candidate_result = get_recipe_candidates(
+            db=snapshot,
+            user=user,
+            meal_type=target_item.meal_type,
+            max_total_time_minutes=payload.max_total_time_minutes,
+            require_complete_nutrition=payload.require_complete_nutrition,
+            required_nutrient_codes=target_codes,
+            excluded_recipe_ids=excluded_recipe_ids,
+            required_tags=payload.required_tags,
+            excluded_tags=payload.excluded_tags,
+        )
+        candidates = candidate_result.candidates
+        if payload.recipe_id is not None:
+            candidates = [
+                candidate for candidate in candidates if candidate.recipe_id == payload.recipe_id
+            ]
+        if not candidates:
+            raise no_swap_candidate_error(
+                {
+                    "meal_type": target_item.meal_type,
+                    "exclusion_summary": {
+                        reason.value: count
+                        for reason, count in candidate_result.exclusion_summary.items()
+                    },
+                }
+            )
+
+        expected_profile = get_profile(snapshot, user)
+        expected_plan = plan_signature(plan)
+        ingredients = load_recipe_ingredients(snapshot, [candidate.recipe_id for candidate in candidates])
+        solver_input = DailyPlanSolverInput(
             candidates=candidates,
             targets=targets,
             meal_slots=[MealSlot(meal_type=target_item.meal_type, required=True)],
@@ -128,7 +141,7 @@ def swap_meal_plan_item(
             ),
             locked_nutrition=nutrition_totals_for_items(locked_items),
         )
-    )
+    solver_result = solve_daily_plan(solver_input)
     raise_on_solver_timeout(solver_result)
     if solver_result.status is SolverStatus.INFEASIBLE or not solver_result.meals:
         raise no_swap_candidate_error(
@@ -141,6 +154,15 @@ def swap_meal_plan_item(
     replacement = solver_result.meals[0]
 
     try:
+        lock_user_meal_plans(db, user.id)
+        plan = get_meal_plan_detail(db, user, meal_plan_id)
+        if plan.status == MealPlanStatus.ARCHIVED.value:
+            raise meal_plan_archived_error()
+        target_item = item_for_swap(plan, meal_plan_item_id)
+        ensure_item_has_no_consumption(db, target_item.id)
+        ensure_profile_unchanged(db, user, expected_profile)
+        if plan_signature(plan) != expected_plan:
+            raise planning_inputs_changed_error()
         target_item.recipe_id = replacement.recipe_id
         target_item.recipe_name_snapshot = replacement.recipe_name
         target_item.servings = replacement.serving_amount
@@ -169,6 +191,7 @@ def swap_meal_plan_item(
             item=target_item,
             recipe_id=replacement.recipe_id,
             servings=replacement.serving_amount,
+            ingredients=ingredients[replacement.recipe_id],
         )
 
         plan.solver_status = solver_result.status.value
@@ -190,6 +213,16 @@ def swap_meal_plan_item(
         raise
 
     return get_meal_plan_detail(db=db, user=user, meal_plan_id=plan.id)
+
+
+def plan_signature(plan: MealPlan) -> tuple:
+    """Detect concurrent swaps/target changes before applying a prepared result."""
+    return (
+        plan.calorie_target, plan.protein_target, plan.carbohydrate_target, plan.fat_target,
+        tuple((item.id, item.recipe_id, item.servings, item.position, item.scheduled_time,
+               tuple((n.nutrient_code, n.amount, n.unit) for n in item.nutrients))
+              for item in plan.items),
+    )
 
 
 def validate_supported_swap_constraints(payload: MealSwapRequest) -> None:

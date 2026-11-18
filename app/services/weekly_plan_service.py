@@ -10,7 +10,16 @@ from app.models.meal_plan import MealPlan, MealPlanItem, WeeklyMealPlan
 from app.models.user import User
 from app.schemas.meal_plan import MealPlanCreateRequest
 from app.schemas.weekly_plan import WeeklyMealPlanCreateRequest
-from app.services.meal_plan_service import create_daily_meal_plan
+from app.services.meal_plan_consumption_service import (
+    ensure_dates_have_no_consumption,
+    lock_user_meal_plans,
+    planning_snapshot,
+)
+from app.services.meal_plan_service import (
+    ensure_profile_unchanged,
+    persist_prepared_daily_plan,
+    prepare_daily_meal_plan,
+)
 
 
 WEEK_LENGTH_DAYS = 7
@@ -73,39 +82,17 @@ def create_weekly_plan(
 ) -> WeeklyMealPlan:
     start_date = payload.start_date
     end_date = week_end_date(start_date)
-    ensure_no_generated_week_for_range(
-        db=db,
-        user_id=user.id,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    ensure_no_generated_daily_conflicts(
-        db=db,
-        user_id=user.id,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-    week = WeeklyMealPlan(
-        user_id=user.id,
-        start_date=start_date,
-        end_date=end_date,
-        status=WeeklyMealPlanStatus.GENERATED.value,
-    )
+    prepared_days = []
     previous_day_recipe_ids: list[UUID] = []
-
-    try:
-        db.add(week)
-        db.flush()
+    with planning_snapshot(db) as snapshot:
+        ensure_no_generated_week_for_range(snapshot, user.id, start_date, end_date)
+        ensure_no_generated_daily_conflicts(snapshot, user.id, start_date, end_date)
+        ensure_dates_have_no_consumption(snapshot, user.id, start_date, end_date)
         for plan_date in week_dates(start_date):
             daily_payload = daily_payload_for_date(payload=payload, plan_date=plan_date)
             try:
-                daily_plan = create_daily_meal_plan(
-                    db=db,
-                    user=user,
-                    payload=daily_payload,
-                    commit=False,
-                    weekly_plan_id=week.id,
+                prepared = prepare_daily_meal_plan(
+                    snapshot, user, daily_payload,
                     additional_excluded_recipe_ids=previous_day_recipe_ids,
                 )
             except APIErrorException as exc:
@@ -114,22 +101,28 @@ def create_weekly_plan(
                 if not previous_day_recipe_ids:
                     raise weekly_plan_infeasible_error(plan_date, exc) from exc
                 try:
-                    daily_plan = create_daily_meal_plan(
-                        db=db,
-                        user=user,
-                        payload=daily_payload,
-                        commit=False,
-                        weekly_plan_id=week.id,
-                    )
+                    prepared = prepare_daily_meal_plan(snapshot, user, daily_payload)
                 except APIErrorException as retry_exc:
                     if retry_exc.code == "MEAL_PLAN_INFEASIBLE":
                         raise weekly_plan_infeasible_error(plan_date, retry_exc) from retry_exc
                     raise
+            prepared_days.append(prepared)
+            previous_day_recipe_ids = sorted([meal.recipe_id for meal in prepared.result.meals], key=str)
 
-            previous_day_recipe_ids = sorted(
-                [item.recipe_id for item in daily_plan.items],
-                key=str,
-            )
+    week = WeeklyMealPlan(
+        user_id=user.id, start_date=start_date, end_date=end_date,
+        status=WeeklyMealPlanStatus.GENERATED.value,
+    )
+    try:
+        lock_user_meal_plans(db, user.id)
+        ensure_no_generated_week_for_range(db, user.id, start_date, end_date)
+        ensure_no_generated_daily_conflicts(db, user.id, start_date, end_date)
+        ensure_dates_have_no_consumption(db, user.id, start_date, end_date)
+        ensure_profile_unchanged(db, user, prepared_days[0].profile)
+        db.add(week)
+        db.flush()
+        for prepared in prepared_days:
+            persist_prepared_daily_plan(db, user, prepared, commit=False, weekly_plan_id=week.id)
 
         db.commit()
         db.expire_all()
@@ -233,6 +226,7 @@ def get_weekly_plan_detail(
             ),
         )
         .filter(WeeklyMealPlan.id == weekly_plan_id, WeeklyMealPlan.user_id == user.id)
+        .populate_existing()
         .one_or_none()
     )
     if week is None:
@@ -267,9 +261,16 @@ def archive_weekly_plan(
     user: User,
     weekly_plan_id: UUID,
 ) -> None:
+    lock_user_meal_plans(db, user.id)
     week = get_weekly_plan_detail(db=db, user=user, weekly_plan_id=weekly_plan_id)
-    if week.status == WeeklyMealPlanStatus.ARCHIVED.value:
-        return
+    # Reject the entire operation before mutating any member of a consumed week.
+    if week.status != WeeklyMealPlanStatus.ARCHIVED.value or any(
+        day.status == MealPlanStatus.GENERATED.value for day in week.daily_plans
+    ):
+        ensure_dates_have_no_consumption(
+            db, user.id, week.start_date, week.end_date,
+            details={"weekly_plan_id": str(week.id)},
+        )
     week.status = WeeklyMealPlanStatus.ARCHIVED.value
     for daily_plan in week.daily_plans:
         if daily_plan.status != MealPlanStatus.ARCHIVED.value:

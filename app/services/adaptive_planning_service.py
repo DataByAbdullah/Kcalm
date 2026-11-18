@@ -26,7 +26,19 @@ from app.nutrition.macros import calculate_macros_with_fixed_protein_and_fat
 from app.schemas.adaptive_planning import AdaptivePlanRequest
 from app.schemas.meal_plan import MealPlanCreateRequest, MealSlotRequest
 from app.services.meal_log_service import get_actual_summary
-from app.services.meal_plan_service import create_daily_meal_plan, get_meal_plan_detail
+from app.services.meal_plan_service import (
+    ensure_no_generated_plan_for_date,
+    ensure_profile_unchanged,
+    get_meal_plan_detail,
+    persist_prepared_daily_plan,
+    prepare_daily_meal_plan,
+)
+from app.services.meal_plan_consumption_service import (
+    ensure_dates_have_no_consumption,
+    lock_user_meal_plans,
+    planning_inputs_changed_error,
+    planning_snapshot,
+)
 from app.services.meal_solver_service import raise_on_solver_timeout, solve_daily_plan_preview
 
 
@@ -179,31 +191,29 @@ def create_adaptive_next_day_plan(
     source_plan_id: UUID,
     payload: AdaptivePlanRequest,
 ) -> AdaptivePlanCreation:
-    source_plan = load_valid_source_plan(db=db, user=user, source_plan_id=source_plan_id)
-    adjusted_target, _, _, _, _ = build_adjusted_target(
-        db=db,
-        user=user,
-        source_plan=source_plan,
-    )
-    solver_payload = adaptive_solver_payload(source_plan=source_plan, payload=payload)
-    solver_result = solve_daily_plan_preview(
-        db=db,
-        user=user,
-        payload=solver_payload,
-        target_override=adjusted_target.solver_targets,
-    )
-    raise_on_solver_timeout(solver_result)
-    if solver_result.status is SolverStatus.INFEASIBLE:
-        raise adaptive_plan_infeasible_error(solver_result)
-
+    with planning_snapshot(db) as snapshot:
+        source_plan = load_valid_source_plan(snapshot, user, source_plan_id)
+        adjusted_target, _, _, _, _ = build_adjusted_target(snapshot, user, source_plan)
+        solver_payload = adaptive_solver_payload(source_plan=source_plan, payload=payload)
+        try:
+            prepared = prepare_daily_meal_plan(
+                snapshot, user, MealPlanCreateRequest(**solver_payload.model_dump()),
+                target_override=adjusted_target.solver_targets,
+            )
+        except APIErrorException as exc:
+            if exc.code == "MEAL_PLAN_INFEASIBLE":
+                raise APIErrorException(422, "ADAPTIVE_PLAN_INFEASIBLE", "Adaptive next-day meal plan could not be generated.", details=exc.details) from exc
+            raise
     try:
-        plan = create_daily_meal_plan(
-            db=db,
-            user=user,
-            payload=MealPlanCreateRequest(**solver_payload.model_dump()),
-            commit=False,
-            target_override=adjusted_target.solver_targets,
-        )
+        lock_user_meal_plans(db, user.id)
+        source_plan = load_valid_source_plan(db, user, source_plan_id)
+        current_target, _, _, _, _ = build_adjusted_target(db, user, source_plan)
+        if current_target != adjusted_target:
+            raise planning_inputs_changed_error()
+        ensure_no_generated_plan_for_date(db, user.id, prepared.plan_date)
+        ensure_dates_have_no_consumption(db, user.id, prepared.plan_date, prepared.plan_date)
+        ensure_profile_unchanged(db, user, prepared.profile)
+        plan = persist_prepared_daily_plan(db, user, prepared, commit=False)
         persist_adaptation_snapshot(db=db, plan=plan, adjusted_target=adjusted_target)
         db.commit()
         db.expire_all()

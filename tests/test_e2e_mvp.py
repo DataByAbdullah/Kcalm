@@ -322,44 +322,6 @@ def test_mvp_backend_user_journey(mvp_db, monkeypatch) -> None:
     assert removed.status_code == 204
     assert get_grocery_list(token, grocery_list["grocery_list_id"]).status_code == 200
 
-    for meal in plan["meals"]:
-        logged = log_item(
-            token,
-            plan["meal_plan_id"],
-            meal["id"],
-            {"type": "ate_as_planned"},
-        )
-        assert logged.status_code == 200, logged.text
-
-    correction = log_item(
-        token,
-        plan["meal_plan_id"],
-        plan["meals"][0]["id"],
-        {
-            "type": "corrected",
-            "source_type": "food",
-            "food_id": food_id(db, "dev_chicken_breast"),
-            "quantity_grams": 180,
-        },
-    )
-    assert correction.status_code == 200, correction.text
-    summary = actual_summary(token, plan["meal_plan_id"])
-    assert summary.status_code == 200, summary.text
-    assert summary.json()["adherence"]["logged_meals_count"] == len(plan["meals"])
-
-    adaptive_preview = api_post(
-        f"/api/v1/meal-plans/{plan['meal_plan_id']}/adaptive-preview",
-        token,
-        {},
-    )
-    assert adaptive_preview.status_code == 200, adaptive_preview.text
-    adaptive_generate = api_post(
-        f"/api/v1/meal-plans/{plan['meal_plan_id']}/generate-next-day",
-        token,
-        {},
-    )
-    assert adaptive_generate.status_code == 201, adaptive_generate.text
-
     interpreter = QueuedInterpreter(
         [
             NaturalLanguageMealConstraintLLMOutput(
@@ -401,6 +363,53 @@ def test_mvp_backend_user_journey(mvp_db, monkeypatch) -> None:
     )
     assert ai_swapped.status_code == 200, ai_swapped.text
     plan = ai_swapped.json()
+
+
+    for meal in plan["meals"]:
+        logged = log_item(
+            token,
+            plan["meal_plan_id"],
+            meal["id"],
+            {"type": "ate_as_planned"},
+        )
+        assert logged.status_code == 200, logged.text
+
+    blocked_swap = api_post(
+        f"/api/v1/meal-plans/{plan['meal_plan_id']}/items/{lunch_item(plan)['id']}/swap",
+        token, {},
+    )
+    assert blocked_swap.status_code == 409, blocked_swap.text
+    assert blocked_swap.json()["error"]["code"] == "MEAL_PLAN_ITEM_ALREADY_LOGGED"
+
+    correction = log_item(
+        token,
+        plan["meal_plan_id"],
+        plan["meals"][0]["id"],
+        {
+            "type": "corrected",
+            "source_type": "food",
+            "food_id": food_id(db, "dev_chicken_breast"),
+            "quantity_grams": 180,
+        },
+    )
+    assert correction.status_code == 200, correction.text
+    summary = actual_summary(token, plan["meal_plan_id"])
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["adherence"]["logged_meals_count"] == len(plan["meals"])
+
+    adaptive_preview = api_post(
+        f"/api/v1/meal-plans/{plan['meal_plan_id']}/adaptive-preview",
+        token,
+        {},
+    )
+    assert adaptive_preview.status_code == 200, adaptive_preview.text
+    adaptive_generate = api_post(
+        f"/api/v1/meal-plans/{plan['meal_plan_id']}/generate-next-day",
+        token,
+        {},
+    )
+    assert adaptive_generate.status_code == 201, adaptive_generate.text
+
 
     execution_start = api_post(
         f"/api/v1/meal-plans/{plan['meal_plan_id']}/items/{plan['meals'][0]['id']}/execution-session",
