@@ -48,6 +48,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request, exc):
+        if request.method == "PUT" and request.url.path.endswith("/users/me/avatar"):
+            # Never echo request values, decoder details, or image contents.
+            return build_error_response(422, "INVALID_AVATAR", "Provide a valid avatar image Data URL.")
         error_code = "VALIDATION_ERROR"
         if request.url.path.endswith("/users/profile"):
             error_code = "INVALID_PROFILE_DATA"

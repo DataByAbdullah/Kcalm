@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Enum, Integer, String, false
+from sqlalchemy import Boolean, Enum, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.enums import MembershipTier
 from app.models.base import TimestampedUUIDBase
@@ -9,6 +9,7 @@ class User(TimestampedUUIDBase):
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    avatar_data_url: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
     membership_tier: Mapped[MembershipTier] = mapped_column(
         Enum(
             MembershipTier,

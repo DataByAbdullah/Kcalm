@@ -21,7 +21,7 @@ from app.models.rate_limit import RateLimitBucket
 from app.models.user import User
 
 
-Scope = Literal["register", "login", "forgot_password", "ai", "usda_import"]
+Scope = Literal["register", "login", "forgot_password", "ai", "usda_import", "avatar"]
 
 
 def consume_rate_limit(scope: Scope, identity: str, settings: Settings) -> None:
@@ -83,4 +83,11 @@ def rate_limit_usda_import(
     user: User = Depends(require_admin), settings: Settings = Depends(get_settings),
 ) -> User:
     consume_rate_limit("usda_import", str(user.id), settings)
+    return user
+
+
+def rate_limit_avatar(
+    user: User = Depends(get_current_user), settings: Settings = Depends(get_settings),
+) -> User:
+    consume_rate_limit("avatar", str(user.id), settings)
     return user
