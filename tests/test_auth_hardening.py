@@ -23,7 +23,8 @@ def test_registration_cannot_assign_admin_and_me_exposes_role(auth_db):
     me = request("GET", "/auth/me", token)
     assert me.status_code == 200
     assert me.json()["is_admin"] is False
-    assert set(me.json()) == {"id", "email", "full_name", "membership_tier", "is_active", "is_admin"}
+    assert set(me.json()) == {"id", "email", "full_name", "membership_tier", "is_active", "is_admin", "avatar"}
+    assert me.json()["avatar"] is None
 
 
 def test_logout_revokes_access_and_refresh_and_allows_password_login(tracking_user):

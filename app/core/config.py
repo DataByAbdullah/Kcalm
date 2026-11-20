@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     rate_limit_ai_window_seconds: int = Field(default=60, ge=1)
     rate_limit_usda_import_requests: int = Field(default=20, ge=1)
     rate_limit_usda_import_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_avatar_requests: int = Field(default=10, ge=1)
+    rate_limit_avatar_window_seconds: int = Field(default=60, ge=1)
 
     @property
     def is_production(self) -> bool:

@@ -34,8 +34,9 @@ class UserResponse(BaseModel):
     membership_tier: MembershipTier
     is_active: bool
     is_admin: bool
+    avatar: str | None = Field(default=None, validation_alias="avatar_data_url")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class TokenResponse(BaseModel):

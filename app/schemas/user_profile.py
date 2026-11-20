@@ -158,3 +158,9 @@ class UserProfileResponse(BaseModel):
         if self.target_weight_kg > self.weight_kg:
             return "gain_weight"
         return "maintain_weight"
+
+
+class UserProfileWithAvatarResponse(UserProfileResponse):
+    """Public profile; avatars never become internal meal-planning inputs."""
+
+    avatar: str | None = None
