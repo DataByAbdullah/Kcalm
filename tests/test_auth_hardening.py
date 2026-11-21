@@ -4,8 +4,13 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import get_db
+from app.core.database import SessionLocal
+from app.core.config import get_settings
 from app.main import app
-from tests.test_auth import auth_db, login_user, register_user, unique_email
+from app.models.password_reset_job import PasswordResetJob
+from app.services.password_reset_dispatch import dispatch_once
+from app.services.password_reset_process import DeliveryResult
+from tests.test_auth import auth_db, login_user, register_user, unique_email, run_async
 from tests.test_weight_logs import request, tracking_user
 
 
@@ -79,30 +84,41 @@ def test_password_reset_delivery_failure_stays_generic(auth_db, monkeypatch, cap
     assert register_user(email).status_code == 201
     captured = {}
 
-    def fail_delivery(email, reset_token):
+    async def fail_delivery(email, reset_token, settings, **kwargs):
         captured["token"] = reset_token
-        raise failure("private SMTP details and credentials")
+        try:
+            raise failure("private SMTP details and credentials")
+        except (smtplib.SMTPException, OSError) as exc:
+            return DeliveryResult("timeout" if isinstance(exc, TimeoutError) else "provider_error",
+                                  type(exc).__name__)
 
-    monkeypatch.setattr("app.services.auth_service.send_password_reset_email", fail_delivery)
     known = request("POST", "/auth/forgot-password", body={"email": email})
     unknown = request("POST", "/auth/forgot-password", body={"email": unique_email("unknown")})
     assert known.status_code == unknown.status_code == 200
     assert known.json() == unknown.json() == {
         "message": "If an account exists for this email, a password reset link has been sent.",
     }
+    assert captured == {}
+    assert run_async(dispatch_once(SessionLocal, get_settings(), deliver=fail_delivery))
     assert captured["token"] not in known.text + unknown.text + caplog.text
     assert "private SMTP" not in known.text + caplog.text
     assert email not in caplog.text
-    assert "Password reset email delivery failed." in caplog.text
+    events = [record for record in caplog.records if getattr(record, "exception_class", None) == failure.__name__]
+    assert len(events) == 1
+    assert events[0].category == ("timeout" if failure is TimeoutError else "provider_error")
 
 
 def test_password_reset_does_not_swallow_programming_errors(tracking_user, monkeypatch):
     _, token = tracking_user
     email = request("GET", "/auth/me", token).json()["email"]
 
-    def bug(**kwargs):
+    async def bug(*args, **kwargs):
         raise TypeError("programming bug")
 
-    monkeypatch.setattr("app.services.auth_service.send_password_reset_email", bug)
+    assert request("POST", "/auth/forgot-password", body={"email": email}).status_code == 200
     with pytest.raises(TypeError, match="programming bug"):
-        request("POST", "/auth/forgot-password", body={"email": email})
+        run_async(dispatch_once(SessionLocal, get_settings(), deliver=bug))
+    with SessionLocal() as db:
+        job = db.query(PasswordResetJob).one()
+        assert job.status == "processing"
+        assert job.lease_until is not None  # Recoverable after the worker failure.

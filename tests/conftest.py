@@ -4,6 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import engine
 from app.models.rate_limit import RateLimitBucket
+from app.models.password_reset_job import PasswordResetJob
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +16,8 @@ def isolate_rate_limit_buckets():
     """
     try:
         with engine.begin() as connection:
+            if inspect(connection).has_table(PasswordResetJob.__tablename__):
+                connection.execute(delete(PasswordResetJob))
             if inspect(connection).has_table(RateLimitBucket.__tablename__):
                 connection.execute(delete(RateLimitBucket))
     except SQLAlchemyError:

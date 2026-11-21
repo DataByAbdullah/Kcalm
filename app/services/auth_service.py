@@ -1,6 +1,3 @@
-import logging
-import smtplib
-
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -11,17 +8,13 @@ from uuid import UUID
 from app.core.security import (
     InvalidTokenError,
     TokenExpiredError,
-    create_password_reset_token,
     decode_password_reset_token,
     hash_password,
     password_reset_fingerprint,
     verify_password,
 )
-from app.services.email_service import send_password_reset_email
+from app.services.password_reset_dispatch import enqueue_password_reset
 from app.models.user import User
-
-
-logger = logging.getLogger(__name__)
 
 
 def logout_user(db: Session, user: User) -> None:
@@ -99,24 +92,9 @@ def authenticate_user(db: Session, email: str, password: str) -> User:
     return user
 
 def request_password_reset(db: Session, email: str) -> None:
-    user = get_user_by_email(db, email)
-
-    # Always return success-style behavior so attackers cannot
-    # discover which emails are registered.
-    if user is None or not user.is_active:
-        return
-
-    token = create_password_reset_token(
-        subject=user.id,
-        password_hash=user.password_hash,
-    )
-
-    try:
-        send_password_reset_email(email=user.email, reset_token=token)
-    except (smtplib.SMTPException, OSError):
-        # Delivery exceptions can contain SMTP credentials, recipient addresses or
-        # message contents. Log only the event, never the exception or reset token.
-        logger.warning("Password reset email delivery failed.")
+    # Persist the same kind of work for known, unknown and inactive addresses.
+    # No provider or password-reset token work runs on the public response path.
+    enqueue_password_reset(db, normalize_email(email))
 
 
 def reset_password(db: Session, token: str, new_password: str) -> None:
@@ -155,11 +133,24 @@ def reset_password(db: Session, token: str, new_password: str) -> None:
             message="Password reset token is invalid or has already been used.",
         )
 
-    user.password_hash = hash_password(new_password)
-    user.token_version += 1
-    db.add(user)
+    expected_hash = user.password_hash
+    replacement_hash = hash_password(new_password)
     try:
+        changed = db.execute(
+            update(User).where(
+                User.id == user_id, User.is_active.is_(True),
+                User.password_hash == expected_hash,
+            ).values(
+                password_hash=replacement_hash,
+                token_version=User.token_version + 1,
+            ).returning(User.id).execution_options(synchronize_session=False)
+        ).scalar_one_or_none()
+        if changed is None:
+            db.rollback()
+            raise APIErrorException(400, "INVALID_PASSWORD_RESET_TOKEN",
+                                    "Password reset token is invalid or has already been used.")
         db.commit()
+        db.expire(user)
     except SQLAlchemyError as exc:
         db.rollback()
         raise APIErrorException(500, "PASSWORD_CHANGE_FAILED", "Password could not be updated.") from exc

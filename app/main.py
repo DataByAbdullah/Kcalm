@@ -9,6 +9,9 @@ from app.core.exceptions import (
     api_error_exception_handler,
     build_error_response,
 )
+from app.services.email_service import warn_if_email_unconfigured
+from app.services.password_reset_dispatch import password_reset_lifespan
+from app.core.password_reset_logging import configure_password_reset_logging
 
 
 def sanitize_validation_errors(errors: list[dict]) -> list[dict]:
@@ -25,11 +28,15 @@ def sanitize_validation_errors(errors: list[dict]) -> list[dict]:
 
 
 def create_app() -> FastAPI:
+    configure_password_reset_logging()
     settings = get_settings()
     if settings.is_production and settings.jwt_secret == DEFAULT_JWT_SECRET:
         raise RuntimeError("JWT_SECRET must be changed from the development default in production.")
+    if settings.is_production:
+        warn_if_email_unconfigured(settings)
 
     app = FastAPI(
+        lifespan=password_reset_lifespan,
         title=settings.app_name,
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",
