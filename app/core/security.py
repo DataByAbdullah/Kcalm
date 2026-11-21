@@ -105,10 +105,13 @@ def password_reset_fingerprint(password_hash: str) -> str:
 def create_password_reset_token(
     subject: str | UUID,
     password_hash: str,
+    *,
+    issued_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> str:
     settings = get_settings()
-    now = datetime.now(UTC)
-    expires_at = now + timedelta(
+    now = issued_at if issued_at is not None else datetime.now(UTC)
+    expires_at = expires_at if expires_at is not None else now + timedelta(
         minutes=settings.password_reset_token_expire_minutes
     )
 

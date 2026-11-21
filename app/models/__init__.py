@@ -3,6 +3,7 @@ from app.models.weight_log import WeightLog
 from app.models.step_log import StepLog
 from app.models.daily_metrics import DailyMetrics
 from app.models.rate_limit import RateLimitBucket
+from app.models.password_reset_job import PasswordResetJob
 from app.models.habit import Habit, HabitCompletion
 from app.models.notification import Notification
 
@@ -51,6 +52,7 @@ __all__ = [
     "StepLog",
     "DailyMetrics",
     "RateLimitBucket",
+    "PasswordResetJob",
     "Habit",
     "HabitCompletion",
     "Notification",

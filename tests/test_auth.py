@@ -323,14 +323,11 @@ def test_forgot_password_known_email_returns_generic_success(auth_db, monkeypatc
 
     sent: dict[str, str] = {}
 
-    def fake_send_password_reset_email(email: str, reset_token: str) -> None:
+    async def fake_delivery(email, reset_token, settings, **kwargs):
         sent["email"] = email
         sent["token"] = reset_token
-
-    monkeypatch.setattr(
-        "app.services.auth_service.send_password_reset_email",
-        fake_send_password_reset_email,
-    )
+        from app.services.password_reset_process import DeliveryResult
+        return DeliveryResult("accepted")
 
     response = run_async(
         api_request(
@@ -344,6 +341,11 @@ def test_forgot_password_known_email_returns_generic_success(auth_db, monkeypatc
     assert response.json()["message"] == (
         "If an account exists for this email, a password reset link has been sent."
     )
+    assert sent == {}  # Delivery must happen after the public response.
+    from app.core.config import get_settings
+    from app.core.database import SessionLocal
+    from app.services.password_reset_dispatch import dispatch_once
+    assert run_async(dispatch_once(SessionLocal, get_settings(), deliver=fake_delivery))
     assert sent["email"] == email
     assert sent["token"]
 
@@ -354,14 +356,9 @@ def test_forgot_password_unknown_email_returns_same_generic_success(auth_db, mon
 
     called = False
 
-    def fake_send_password_reset_email(email: str, reset_token: str) -> None:
+    async def fake_delivery(email, reset_token, settings, **kwargs):
         nonlocal called
         called = True
-
-    monkeypatch.setattr(
-        "app.services.auth_service.send_password_reset_email",
-        fake_send_password_reset_email,
-    )
 
     response = run_async(
         api_request(
@@ -375,6 +372,10 @@ def test_forgot_password_unknown_email_returns_same_generic_success(auth_db, mon
     assert response.json()["message"] == (
         "If an account exists for this email, a password reset link has been sent."
     )
+    from app.core.config import get_settings
+    from app.core.database import SessionLocal
+    from app.services.password_reset_dispatch import dispatch_once
+    assert not run_async(dispatch_once(SessionLocal, get_settings(), deliver=fake_delivery))
     assert called is False
 
 

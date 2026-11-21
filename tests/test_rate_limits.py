@@ -46,7 +46,7 @@ def test_auth_routes_limit_each_client(auth_db, small_limits, monkeypatch, scope
     email = track(unique_email("limited-auth"))
     if scope != "register":
         assert register_user(email).status_code == 201
-    monkeypatch.setattr("app.services.auth_service.send_password_reset_email", lambda **kwargs: None)
+    monkeypatch.setattr("app.services.email_service.send_password_reset_email", lambda **kwargs: None)
     path = "/auth/" + scope.replace("_", "-")
     for _ in range(2):
         body = {"email": email, "password": "StrongPassword123"}

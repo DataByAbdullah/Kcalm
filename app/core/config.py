@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +40,23 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in {"production", "prod"}
+
+    email_provider: Literal["smtp", "resend"] = "smtp"
+    resend_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    resend_from_email: str = Field(default="", repr=False)
+    email_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    email_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    email_delivery_deadline_seconds: float = Field(default=20.0, gt=0, le=120)
+    password_reset_dispatcher_enabled: bool = True
+    password_reset_poll_seconds: float = Field(default=1.0, ge=0.1, le=60)
+    password_reset_max_concurrent_deliveries: int = Field(default=2, ge=1, le=8)
+    password_reset_max_pending_jobs: int = Field(default=500, ge=1, le=10000)
+    password_reset_max_attempts: int = Field(default=3, ge=1, le=5)
+    password_reset_retry_seconds: int = Field(default=30, ge=1, le=300)
+    rate_limit_password_reset_recipient_requests: int = Field(default=1, ge=1, le=1)
+    rate_limit_password_reset_recipient_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_password_reset_provider_requests: int = Field(default=30, ge=1)
+    rate_limit_password_reset_provider_window_seconds: int = Field(default=60, ge=1)
 
     smtp_host: str = ""
     smtp_port: int = 587

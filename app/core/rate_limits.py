@@ -12,6 +12,7 @@ from fastapi import Depends, Request
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
@@ -21,10 +22,11 @@ from app.models.rate_limit import RateLimitBucket
 from app.models.user import User
 
 
-Scope = Literal["register", "login", "forgot_password", "ai", "usda_import", "avatar"]
+Scope = Literal["register", "login", "forgot_password", "ai", "usda_import", "avatar",
+                "password_reset_recipient", "password_reset_provider"]
 
 
-def consume_rate_limit(scope: Scope, identity: str, settings: Settings) -> None:
+def _rate_limit_statement(scope: Scope, identity: str, settings: Settings):
     limit = getattr(settings, f"rate_limit_{scope}_requests")
     window = getattr(settings, f"rate_limit_{scope}_window_seconds")
     key_hash = hmac.new(
@@ -43,6 +45,17 @@ def consume_rate_limit(scope: Scope, identity: str, settings: Settings) -> None:
         },
         where=or_(expired, RateLimitBucket.request_count < limit),
     ).returning(RateLimitBucket.request_count)
+    return statement, key_hash
+
+
+def try_consume_rate_limit(db: Session, scope: Scope, identity: str, settings: Settings) -> bool:
+    """Atomically consume quota in the caller's transaction, without a public 429."""
+    statement, _ = _rate_limit_statement(scope, identity, settings)
+    return db.execute(statement).scalar_one_or_none() is not None
+
+
+def consume_rate_limit(scope: Scope, identity: str, settings: Settings) -> None:
+    statement, key_hash = _rate_limit_statement(scope, identity, settings)
     retry_after = None
     try:
         # Separate transaction: failed credentials or downstream rollbacks must
